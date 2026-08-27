@@ -1,0 +1,35 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: collab-svc
+  namespace: default
+spec:
+  owner:
+    projectName: doclet
+
+  componentType:
+    name: deployment/service
+    kind: ComponentType
+
+  autoBuild: true
+
+  workflow:
+    name: docker-gitops-release
+    kind: Workflow
+    parameters:
+      componentName: "collab-svc"
+      projectName: "doclet"
+      repository:
+        url: "https://github.com/openchoreo/sample-workloads.git"
+        revision:
+          branch: "main"
+        appPath: "/project-doclet-app/service-go-collab"
+      docker:
+        context: "/project-doclet-app/service-go-collab"
+        filePath: "/project-doclet-app/service-go-collab/Dockerfile"
+      workloadDescriptorPath: "workload.yaml"
+
+  parameters:
+    exposed: true
+    replicas: 1
+    port: 8090

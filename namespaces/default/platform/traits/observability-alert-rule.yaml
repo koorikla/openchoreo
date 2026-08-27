@@ -1,0 +1,100 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Trait
+metadata:
+  name: observability-alert-rule
+  namespace: default
+spec:
+  parameters:
+    openAPIV3Schema:
+      type: object
+      # Developer-facing parameters - static across environments
+      required:
+        - description
+      properties:
+        description:
+          type: string
+        severity:
+          type: string
+          default: warning
+        source:
+          type: object
+          required:
+            - type
+          properties:
+            type:
+              type: string
+            query:
+              type: string
+              description: "Required for log-based alerts"
+              default: ""
+            metric:
+              type: string
+              description: "Required for metric-based alerts"
+              default: ""
+        condition:
+          type: object
+          properties:
+            window:
+              type: string
+              default: "5m"
+            interval:
+              type: string
+              default: "1m"
+            operator:
+              type: string
+              default: gt
+            threshold:
+              type: integer
+              default: 10
+
+  environmentConfigs:
+    openAPIV3Schema:
+      type: object
+      # Platform engineers can override per environment
+      required:
+        - notificationChannel
+      properties:
+        enabled:
+          type: boolean
+          default: true
+        enableAiRootCauseAnalysis:
+          type: boolean
+          default: false
+        notificationChannel:
+          type: string
+
+  creates:
+    - targetPlane: observabilityplane
+      includeWhen: ${has(dataplane.observabilityPlaneRef)}
+      template:
+        apiVersion: openchoreo.dev/v1alpha1
+        kind: ObservabilityAlertRule
+        metadata:
+          name: ${metadata.name}-${trait.instanceName}
+          namespace: ${metadata.namespace}
+          labels:
+            # Required for observability backends. Automatically populated by the controller.
+            openchoreo.dev/component-uid: ${metadata.componentUID}
+            openchoreo.dev/project-uid: ${metadata.projectUID}
+            openchoreo.dev/environment-uid: ${metadata.environmentUID}
+        spec:
+          name: ${trait.instanceName}
+          description: ${parameters.description}
+          severity: ${parameters.severity}
+          enabled: ${environmentConfigs.enabled}
+          source:
+            type: ${parameters.source.type}
+            query: ${parameters.source.query}
+            metric: ${parameters.source.metric}
+          condition:
+            window: ${parameters.condition.window}
+            interval: ${parameters.condition.interval}
+            operator: ${parameters.condition.operator}
+            threshold: ${parameters.condition.threshold}
+          actions:
+            notifications:
+              channels:
+                - ${environmentConfigs.notificationChannel}
+            incident:
+              enabled: false
+              triggerAiRca: ${environmentConfigs.enableAiRootCauseAnalysis}

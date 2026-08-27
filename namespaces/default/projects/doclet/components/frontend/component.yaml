@@ -1,0 +1,33 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Component
+metadata:
+  name: frontend
+  namespace: default
+spec:
+  owner:
+    projectName: doclet
+
+  componentType:
+    name: deployment/web-application
+    kind: ComponentType
+  autoBuild: true
+
+  workflow:
+    name: docker-gitops-release
+    kind: Workflow
+    parameters:
+      componentName: "frontend"
+      projectName: "doclet"
+      repository:
+        url: "https://github.com/openchoreo/sample-workloads.git"
+        revision:
+          branch: "main"
+        appPath: "/project-doclet-app/webapp-react-frontend"
+      docker:
+        context: "/project-doclet-app/webapp-react-frontend"
+        filePath: "/project-doclet-app/webapp-react-frontend/Dockerfile"
+      workloadDescriptorPath: "workload.yaml"
+
+  parameters:
+    replicas: 1
+    port: 80

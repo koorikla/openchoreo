@@ -1,0 +1,31 @@
+# Helm values for OpenChoreo Observability Plane in k3d single-cluster setup
+
+finOpsAgent:
+  http:
+    hostnames:
+    - finops-agent.openchoreo.localhost
+
+# Observer API - REST API for querying logs and metrics
+observer:
+  openSearchSecretName: opensearch-admin-credentials
+  secretName: observer-secret
+  http:
+    hostnames:
+    - observer.openchoreo.localhost
+
+security:
+  oidc:
+    jwksUrl: "http://thunder-service.thunder.svc.cluster.local:8090/oauth2/jwks"
+    tokenUrl: "http://thunder-service.thunder.svc.cluster.local:8090/oauth2/token"
+    authServerBaseUrl: "http://thunder.openchoreo.localhost:8080"
+
+rca:
+  http:
+    hostnames:
+    - rca-agent.openchoreo.localhost
+
+gateway:
+  httpPort: 11080
+  httpsPort: 11085
+  tls:
+    enabled: false

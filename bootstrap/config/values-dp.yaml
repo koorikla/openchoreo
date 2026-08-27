@@ -1,0 +1,8 @@
+# Helm values for OpenChoreo Data Plane in k3d single-cluster setup
+
+# Gateway configuration for single-cluster setup
+gateway:
+  httpPort: 19080
+  httpsPort: 19443
+  tls:
+    enabled: false

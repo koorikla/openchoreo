@@ -1,0 +1,25 @@
+apiVersion: openchoreo.dev/v1alpha1
+kind: Workload
+metadata:
+  name: collab-svc-workload
+  namespace: default
+spec:
+  container:
+    env:
+    - key: DOCLET_COLLAB_ADDR
+      value: :8090
+    image: temp-image-placeholder
+  endpoints:
+    http:
+      type: HTTP
+      port: 8090
+  dependencies:
+    endpoints:
+      - component: nats
+        name: tcp
+        visibility: project
+        envBindings:
+          address: DOCLET_NATS_URL
+  owner:
+    componentName: collab-svc
+    projectName: doclet
