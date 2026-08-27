@@ -60,14 +60,19 @@ create_cluster() {
 
 patch_coredns() {
     step "Patching CoreDNS ConfigMap for local hostnames"
-    $KUBECTL get configmap coredns -n kube-system -o yaml > bootstrap/config/coredns-original.yaml
+    $KUBECTL get configmap coredns -n kube-system -o json > bootstrap/config/coredns-original.json
     
-    # Use python to insert the rewrite rules into the Corefile inside the .:53 block
+    # Use python with standard json library to insert the rewrite rules into the Corefile inside the .:53 block
     python3 -c '
-import yaml, sys
+import json, sys
 
-with open("bootstrap/config/coredns-original.yaml", "r") as f:
-    cm = yaml.safe_load(f)
+with open("bootstrap/config/coredns-original.json", "r") as f:
+    cm = json.load(f)
+
+# Clean read-only metadata fields
+if "metadata" in cm:
+    for field in ["resourceVersion", "uid", "creationTimestamp", "generation"]:
+        cm["metadata"].pop(field, None)
 
 corefile = cm["data"]["Corefile"]
 if "host.k3d.internal" not in corefile:
@@ -83,10 +88,10 @@ if "host.k3d.internal" not in corefile:
         new_lines.append(line)
     cm["data"]["Corefile"] = "\n".join(new_lines)
 
-with open("bootstrap/config/coredns-patched.yaml", "w") as f:
-    yaml.dump(cm, f)
+with open("bootstrap/config/coredns-patched.json", "w") as f:
+    json.dump(cm, f, indent=2)
 '
-    $KUBECTL apply -f bootstrap/config/coredns-patched.yaml
+    $KUBECTL apply -f bootstrap/config/coredns-patched.json
     $KUBECTL rollout restart deployment coredns -n kube-system
     $KUBECTL rollout status deployment coredns -n kube-system --timeout=60s
 }
