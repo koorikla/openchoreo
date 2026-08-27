@@ -3,7 +3,7 @@ kind: Cluster
 name: openchoreo
 nodes:
 - role: control-plane
-  image: kindest/node:v1.30.0
+  image: kindest/node:v1.31.2
   extraPortMappings:
   # Control Plane uses port range 8xxx
   # HTTP traffic to OpenChoreo UI and API (Kgateway LoadBalancer)
