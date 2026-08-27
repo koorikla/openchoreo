@@ -49,11 +49,6 @@ nodes:
   - containerPort: 9200
     hostPort: 11082
     listenAddress: "0.0.0.0"
-  extraHosts:
-  - name: "host.k3d.internal"
-    ip: "host-gateway"
-  - name: "host.kind.internal"
-    ip: "host-gateway"
 kubeadmConfigPatches:
 - |
   apiVersion: kubeadm.k8s.io/v1beta3

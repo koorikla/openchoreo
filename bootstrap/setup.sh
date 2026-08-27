@@ -49,6 +49,12 @@ create_cluster() {
     else
         step "Creating kind cluster '${CLUSTER_NAME}'"
         kind create cluster --config kind.yaml
+        
+        step "Injecting host gateway to node /etc/hosts"
+        local gateway_ip
+        gateway_ip=$(docker exec "${CLUSTER_NAME}-control-plane" ip route | awk '/default/ { print $3 }')
+        info "Found host gateway IP: $gateway_ip"
+        docker exec "${CLUSTER_NAME}-control-plane" sh -c "echo '${gateway_ip} host.k3d.internal host.kind.internal' >> /etc/hosts"
     fi
 }
 
