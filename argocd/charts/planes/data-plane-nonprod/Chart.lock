@@ -1,0 +1,6 @@
+dependencies:
+- name: openchoreo-data-plane
+  repository: oci://ghcr.io/openchoreo/helm-charts
+  version: 1.2.3
+digest: sha256:87c99173fb03e070a0ef0fb50422c308aabf17ebf23daf9eed9cac4abfec8645
+generated: "2026-08-28T05:31:55.526479+03:00"

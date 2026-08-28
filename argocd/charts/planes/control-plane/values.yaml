@@ -1,0 +1,55 @@
+# OpenChoreo control plane on the cp cluster.
+
+openchoreo-control-plane:
+  openchoreoApi:
+    http:
+      hostnames:
+      - api.openchoreo.localhost
+    config:
+      server:
+        publicUrl: "http://api.openchoreo.localhost:8080"
+
+  backstage:
+    secretName: backstage-secrets
+    baseUrl: "http://openchoreo.localhost:8080"
+    http:
+      hostnames:
+      - openchoreo.localhost
+
+  # jwksUrl and tokenUrl deliberately use the in-cluster thunder-service address:
+  # these are back-channel calls made by the API server, and routing them through
+  # the public gateway hostname broke OIDC (fixed in commit bd7ff8a).
+  security:
+    oidc:
+      issuer: "http://thunder.openchoreo.localhost:8080"
+      jwksUrl: "http://thunder-service.thunder.svc.cluster.local:8090/oauth2/jwks"
+      authorizationUrl: "http://thunder.openchoreo.localhost:8080/oauth2/authorize"
+      tokenUrl: "http://thunder-service.thunder.svc.cluster.local:8090/oauth2/token"
+
+  # The remote dp-prod agent dials wss://cluster-gateway.openchoreo.localhost:8443/ws,
+  # which resolves to host.k3d.internal and terminates on this TLSRoute.
+  clusterGateway:
+    tlsRoute:
+      enabled: true
+      hosts:
+        - host: cluster-gateway.openchoreo.localhost
+          paths:
+            - path: /
+              pathType: Prefix
+    tls:
+      issuerRef:
+        name: cluster-gateway-server-issuer
+      dnsNames:
+        - cluster-gateway.openchoreo-control-plane.svc
+        - cluster-gateway.openchoreo-control-plane.svc.cluster.local
+        - cluster-gateway.openchoreo.localhost
+
+  gateway:
+    httpPort: 8080
+    httpsPort: 8443
+    tls:
+      enabled: false
+
+  features:
+    secretManagement:
+      enabled: true

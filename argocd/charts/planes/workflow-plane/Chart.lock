@@ -1,0 +1,6 @@
+dependencies:
+- name: openchoreo-workflow-plane
+  repository: oci://ghcr.io/openchoreo/helm-charts
+  version: 1.2.3
+digest: sha256:ca9023803705f06789928b0a084f67c1c9925a173bd7a690980e7c7d5b386eff
+generated: "2026-08-28T05:32:12.158982+03:00"

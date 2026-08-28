@@ -1,0 +1,9 @@
+apiVersion: v2
+name: data-plane-nonprod
+description: Wrapper pinning the upstream openchoreo-data-plane chart for OpenChoreo
+type: application
+version: 0.1.0
+dependencies:
+  - name: openchoreo-data-plane
+    version: 1.2.3
+    repository: oci://ghcr.io/openchoreo/helm-charts
