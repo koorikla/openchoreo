@@ -1,0 +1,9 @@
+apiVersion: v2
+name: events-otel
+description: Wrapper pinning the upstream observability-events-otel-collector chart (Kubernetes event shipper)
+type: application
+version: 0.1.0
+dependencies:
+  - name: observability-events-otel-collector
+    version: 0.1.2
+    repository: oci://ghcr.io/openchoreo/helm-charts

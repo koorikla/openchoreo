@@ -1,0 +1,53 @@
+# Kubernetes event shipper. The SAME wrapper is deployed to BOTH clusters (see
+# the cp-events-otel and dp-prod-events-otel elements in
+# argocd/apps/00-infrastructure-appset.yaml).
+#
+# The collector watches core v1 Events, enriches them with owner/label context
+# and writes them to the `k8s-events` index in the central OpenSearch, which the
+# Observer reads alongside container logs.
+#
+# The chart ships only a `debug` exporter by default, so the whole OpenSearch
+# exporter, its basicauth extension and the credential env vars have to be
+# supplied here. This block is the pre-Argo CD bootstrap/setup.sh values with
+# the endpoint moved off the in-cluster Service and onto the cp cluster's
+# published TLS-passthrough port, so that one chart serves both clusters.
+observability-events-otel-collector:
+  collector:
+    extraEnv:
+      - name: OPENSEARCH_USERNAME
+        valueFrom:
+          secretKeyRef:
+            name: opensearch-admin-credentials
+            key: username
+      - name: OPENSEARCH_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: opensearch-admin-credentials
+            key: password
+
+  extraExtensions:
+    basicauth/opensearch:
+      client_auth:
+        username: ${env:OPENSEARCH_USERNAME}
+        password: ${env:OPENSEARCH_PASSWORD}
+
+  exporters:
+    opensearch:
+      logs_index: "k8s-events"
+      logs_index_time_format: "yyyy-MM-dd"
+      http:
+        endpoint: "https://host.k3d.internal:11085"
+        # server_name_override is the SNI the gateway's TLS-passthrough listener
+        # matches on to pick the OpenSearch TLSRoute; the Host header carries the
+        # same name through to OpenSearch. Verification is off because the
+        # backend certificate is issued for `opensearch`, not for this name.
+        tls:
+          insecure_skip_verify: true
+          server_name_override: "opensearch.observability.openchoreo.localhost"
+        headers:
+          Host: "opensearch.observability.openchoreo.localhost"
+        auth:
+          authenticator: basicauth/opensearch
+
+  pipelineExporters:
+    - opensearch

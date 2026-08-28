@@ -1,0 +1,9 @@
+apiVersion: v2
+name: tracing-exporter
+description: Wrapper pinning the upstream observability-tracing-opensearch chart in multiClusterExporter mode
+type: application
+version: 0.1.0
+dependencies:
+  - name: observability-tracing-opensearch
+    version: 0.6.0
+    repository: oci://ghcr.io/openchoreo/helm-charts

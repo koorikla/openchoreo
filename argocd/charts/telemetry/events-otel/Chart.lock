@@ -1,0 +1,6 @@
+dependencies:
+- name: observability-events-otel-collector
+  repository: oci://ghcr.io/openchoreo/helm-charts
+  version: 0.1.2
+digest: sha256:2b5f0cb75440d669488eccdd156349961e1fef1b4f1e68a5818dce2075b6a5fc
+generated: "2026-08-28T06:15:57.340474+03:00"

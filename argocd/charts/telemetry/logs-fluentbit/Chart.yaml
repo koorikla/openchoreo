@@ -1,0 +1,9 @@
+apiVersion: v2
+name: logs-fluentbit
+description: Wrapper pinning the upstream observability-logs-opensearch chart, Fluent Bit agent only
+type: application
+version: 0.1.0
+dependencies:
+  - name: observability-logs-opensearch
+    version: 0.5.4
+    repository: oci://ghcr.io/openchoreo/helm-charts

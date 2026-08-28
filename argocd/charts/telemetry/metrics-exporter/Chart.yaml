@@ -1,0 +1,9 @@
+apiVersion: v2
+name: metrics-exporter
+description: Wrapper pinning the upstream observability-metrics-prometheus chart in multiClusterExporter mode
+type: application
+version: 0.1.0
+dependencies:
+  - name: observability-metrics-prometheus
+    version: 0.7.0
+    repository: oci://ghcr.io/openchoreo/helm-charts

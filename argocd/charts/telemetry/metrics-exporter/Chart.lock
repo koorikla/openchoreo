@@ -1,0 +1,6 @@
+dependencies:
+- name: observability-metrics-prometheus
+  repository: oci://ghcr.io/openchoreo/helm-charts
+  version: 0.7.0
+digest: sha256:b036b1e2a8fd41399af57f216f6827308f3ee662baf89c6028ec25d55fd255e2
+generated: "2026-08-28T06:16:15.293931+03:00"
