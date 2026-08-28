@@ -20,7 +20,7 @@ spec:
   generators:
     - git:
         repoURL: https://github.com/koorikla/openchoreo.git
-        revision: feat/multicluster-argocd
+        revision: main
         directories:
           - path: namespaces/*/projects/*
   template:
@@ -32,7 +32,7 @@ spec:
       project: openchoreo
       source:
         repoURL: https://github.com/koorikla/openchoreo.git
-        targetRevision: feat/multicluster-argocd
+        targetRevision: main
         path: '{{.path.path}}'
         directory:
           recurse: true

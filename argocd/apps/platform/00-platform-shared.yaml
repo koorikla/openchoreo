@@ -9,7 +9,7 @@ spec:
   project: openchoreo
   source:
     repoURL: https://github.com/koorikla/openchoreo.git
-    targetRevision: feat/multicluster-argocd
+    targetRevision: main
     path: platform-shared
     directory:
       recurse: true
