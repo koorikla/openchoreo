@@ -25,6 +25,14 @@ thunder:
     enabled: false
 
   configuration:
+    # Thunder 0.36.0 added a consent server, enabled by default and pointed at
+    # postgres://localhost:5432 - which does not exist here, so the setup Job
+    # waited 30s for it and exited 1, blocking every downstream layer. Our
+    # values predate the feature (they were written for 0.28.0), so the chart
+    # default applied. SQLite matches the other three databases.
+    consent:
+      database:
+        type: sqlite
     server:
       httpOnly: true
       publicUrl: "http://thunder.openchoreo.localhost:8080"
@@ -980,4 +988,3 @@ thunder:
   # which makes a failing setup impossible to debug under Argo CD.
   setup:
     preserveJob: true
-    debug: true
