@@ -1,0 +1,20 @@
+# CoreDNS custom config for the k3d clusters.
+# Rewrites OpenChoreo hostnames to host.k3d.internal so pods can reach
+# services exposed through the k3d load balancer, including across clusters.
+#
+# Applied to every cluster by bootstrap/setup.sh.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  openchoreo.override: |
+    rewrite stop {
+      name regex (.+\.)?openchoreo\.localhost host.k3d.internal
+      answer auto
+    }
+    rewrite stop {
+      name regex (.+\.)?openchoreoapis\.localhost host.k3d.internal
+      answer auto
+    }
