@@ -952,18 +952,25 @@ thunder:
           log_info "FinOps Agent application created successfully"
         fi
 
-  # Thunder hardcodes "helm.sh/hook": pre-install on its SQLite PVC. Argo CD
-  # maps that to a PreSync hook and waits for the PVC to Bound before creating
-  # any workload - but k3s's local-path provisioner requires
-  # WaitForFirstConsumer (it needs a scheduled pod to pick the node), so the
-  # PVC cannot bind until a pod exists. Deadlock.
+  # Thunder's PreSync hooks are weight-ordered, and Argo CD waits for each
+  # weight group to go Healthy before applying the next:
   #
-  # An Immediate-binding StorageClass does NOT fix this: local-path rejects it
-  # with "configuration error, no node was specified".
+  #   -15  PersistentVolumeClaim/thunder-database-pvc   <- waits to Bind
+  #   -10  ServiceAccount, ConfigMaps
+  #    -6  Secret
+  #    -5  Job/thunder-setup                            <- the PVC's consumer
   #
-  # argocd.argoproj.io/hook takes precedence over helm.sh/hook, so declaring it
-  # a Sync hook moves the PVC into the same phase as the Deployment. Both are
-  # applied together, the pod schedules, and the PVC binds.
+  # k3s's local-path provisioner needs WaitForFirstConsumer (it picks the node
+  # from a scheduled pod), so the PVC cannot bind until the Job exists - but
+  # the Job is four weight groups later. Deadlock.
+  #
+  # An Immediate StorageClass does not help: local-path rejects it with
+  # "configuration error, no node was specified". Moving the PVC to the Sync
+  # phase does not either - the Job stays in PreSync and then finds no PVC.
+  #
+  # argocd.argoproj.io/sync-wave takes precedence over the wave Argo CD derives
+  # from helm.sh/hook-weight, so pinning the PVC to -5 puts it in the same
+  # group as its consumer. Both are applied together and the PVC binds.
   persistence:
     annotations:
-      argocd.argoproj.io/hook: Sync
+      argocd.argoproj.io/sync-wave: "-5"
