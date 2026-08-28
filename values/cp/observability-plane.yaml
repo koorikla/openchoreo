@@ -8,7 +8,6 @@ finOpsAgent:
     - finops-agent.openchoreo.localhost
 
 observer:
-  openSearchSecretName: opensearch-admin-credentials
   secretName: observer-secret
   controlPlaneApiUrl: "http://api.openchoreo.localhost:8080"
   cors:
