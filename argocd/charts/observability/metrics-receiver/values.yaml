@@ -1,0 +1,21 @@
+# Metrics module, RECEIVER half. Runs on the cp cluster only.
+#
+# multiClusterReceiver keeps the full kube-prometheus-stack (operator,
+# Prometheus with the remote-write receiver enabled, Alertmanager,
+# kube-state-metrics) and adds an HTTPRoute for /api/v1/write on the
+# observability gateway, so dp-prod's PrometheusAgent can remote-write into it.
+# The metrics adapter that the Observer queries is also part of this mode.
+#
+# This same Prometheus scrapes the local dp-nonprod plane directly, since
+# dp-nonprod shares the cp cluster.
+observability-metrics-prometheus:
+  global:
+    installationMode: multiClusterReceiver
+
+  prometheusCustomizations:
+    http:
+      # Hostnames on the generated HTTPRoute. See the matching note in
+      # argocd/charts/observability/tracing-receiver/values.yaml.
+      hostnames:
+        - prometheus.observability.openchoreo.localhost
+        - host.k3d.internal

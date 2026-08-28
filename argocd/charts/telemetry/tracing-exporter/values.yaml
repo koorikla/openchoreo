@@ -1,0 +1,38 @@
+# Tracing module, EXPORTER half. dp-prod only — the cp cluster hosts both the
+# observability plane and dp-nonprod, so its collector is the receiver in
+# argocd/charts/observability/tracing-receiver and needs no exporter.
+#
+# multiClusterExporter renders an OTel collector that accepts OTLP from local
+# workloads, enriches spans with k8sattributes and forwards them over OTLP to
+# the observability plane. Nothing OpenSearch-side is rendered in this mode, so
+# the store, the index setup Job and the query adapter are all switched off —
+# and with them the need for `opensearch-admin-credentials` on this cluster.
+observability-tracing-opensearch:
+  global:
+    installationMode: multiClusterExporter
+
+  openSearch:
+    enabled: false
+
+  openSearchCluster:
+    enabled: false
+
+  openSearchSetup:
+    enabled: false
+
+  adapter:
+    enabled: false
+
+  opentelemetry-collector:
+    # Upstream defaults these to secretKeyRefs on opensearch-admin-credentials.
+    # In exporter mode the collector never talks to OpenSearch, and that Secret
+    # does not exist on dp-prod, so the pod would stay in CreateContainerConfigError.
+    extraEnvs: []
+
+  opentelemetryCollectorCustomizations:
+    http:
+      # The cp cluster's published gateway HTTP port. The virtual host becomes
+      # the OTLP exporter's Host header, which is what the receiver's HTTPRoute
+      # matches on.
+      observabilityPlaneUrl: http://host.k3d.internal:11080
+      observabilityPlaneVirtualHost: opentelemetry.observability.openchoreo.localhost

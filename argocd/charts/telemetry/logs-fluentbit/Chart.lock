@@ -1,0 +1,6 @@
+dependencies:
+- name: observability-logs-opensearch
+  repository: oci://ghcr.io/openchoreo/helm-charts
+  version: 0.5.4
+digest: sha256:a36cc97f14f3f461e20f4612682aa52d8f96f679e8fa38b901c2f26f7d55261e
+generated: "2026-08-28T06:16:06.226583+03:00"

@@ -1,0 +1,9 @@
+apiVersion: v2
+name: logs-opensearch
+description: Wrapper pinning the upstream observability-logs-opensearch chart (receiver side) for OpenChoreo
+type: application
+version: 0.1.0
+dependencies:
+  - name: observability-logs-opensearch
+    version: 0.5.4
+    repository: oci://ghcr.io/openchoreo/helm-charts

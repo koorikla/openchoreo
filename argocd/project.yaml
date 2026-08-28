@@ -1,0 +1,20 @@
+# Permits both cluster destinations and cluster-scoped resources, which the
+# default AppProject does not.
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: openchoreo
+  namespace: argocd
+spec:
+  description: OpenChoreo platform, planes and addons across both clusters
+  sourceRepos:
+    - '*'
+  destinations:
+    - server: '*'
+      namespace: '*'
+  clusterResourceWhitelist:
+    - group: '*'
+      kind: '*'
+  namespaceResourceWhitelist:
+    - group: '*'
+      kind: '*'

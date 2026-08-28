@@ -1,0 +1,9 @@
+apiVersion: v2
+name: cert-manager
+description: Wrapper pinning the upstream cert-manager chart for OpenChoreo
+type: application
+version: 0.1.0
+dependencies:
+  - name: cert-manager
+    version: v1.21.1
+    repository: oci://quay.io/jetstack/charts

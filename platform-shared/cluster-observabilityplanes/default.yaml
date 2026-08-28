@@ -1,0 +1,25 @@
+# The observability plane. Runs inside the cp cluster, in
+# openchoreo-observability-plane. The data planes and the workflow plane point
+# their observabilityPlaneRef at this object; the alert-rule traits gate on
+# ${has(dataplane.observabilityPlaneRef)} and stay dead without it.
+#
+# Note: ClusterObservabilityPlane has no secretStoreRef field - unlike
+# ClusterDataPlane and ClusterWorkflowPlane it does not broker secrets.
+apiVersion: openchoreo.dev/v1alpha1
+kind: ClusterObservabilityPlane
+metadata:
+  name: default
+spec:
+  planeID: default
+  clusterAgent:
+    clientCA:
+      # Populated by bootstrap/link-planes.sh once the agent has minted its CA.
+      # Using secretKeyRef instead of an inline value is what lets this manifest
+      # live in git as static YAML.
+      secretKeyRef:
+        name: observability-plane-agent-ca
+        namespace: openchoreo-control-plane
+        key: ca.crt
+  # Required field. Reached through the cp cluster's gateway on the
+  # openchoreo.localhost:11080 listener that bootstrap/port-forward.sh exposes.
+  observerURL: http://observer.openchoreo.localhost:11080

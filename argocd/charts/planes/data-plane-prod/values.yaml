@@ -1,0 +1,14 @@
+# Data plane "dp-prod": its own k3d cluster, serves production.
+# Reaches the control plane's cluster-gateway through the cp gateway on 8443;
+# the hostname resolves to host.k3d.internal via the CoreDNS rewrite.
+
+openchoreo-data-plane:
+  clusterAgent:
+    serverUrl: "wss://cluster-gateway.openchoreo.localhost:8443/ws"
+    planeID: dp-prod
+
+  gateway:
+    httpPort: 29080
+    httpsPort: 29443
+    tls:
+      enabled: false

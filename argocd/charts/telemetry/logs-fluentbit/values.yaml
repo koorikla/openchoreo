@@ -1,0 +1,33 @@
+# Container-log shipper. The SAME wrapper is deployed to BOTH clusters (see the
+# cp-logs-fluentbit and dp-prod-logs-fluentbit elements in
+# argocd/apps/00-infrastructure-appset.yaml).
+#
+# It wraps the same upstream chart as
+# argocd/charts/observability/logs-opensearch but enables only the agent half:
+# the store, the index setup Job and the query adapter are the receiver's job
+# and must already exist before this syncs.
+#
+# Both clusters ship to `host.k3d.internal:11085`, the cp cluster's published
+# TLS-passthrough port, rather than to the in-cluster Service. On dp-prod that
+# is the only reachable address; on cp it is a longer path than
+# `opensearch:9200` would be, but using it on both keeps ONE chart serving both
+# destinations. TLS is on with verification off, and `openSearchVHost` sets the
+# SNI that selects the TLSRoute in front of OpenSearch.
+observability-logs-opensearch:
+  openSearch:
+    enabled: false
+
+  openSearchCluster:
+    enabled: false
+
+  openSearchSetup:
+    enabled: false
+
+  adapter:
+    enabled: false
+
+  fluent-bit:
+    enabled: true
+    openSearchHost: host.k3d.internal
+    openSearchPort: 11085
+    openSearchVHost: opensearch.observability.openchoreo.localhost

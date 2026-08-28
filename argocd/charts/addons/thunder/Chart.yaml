@@ -1,0 +1,9 @@
+apiVersion: v2
+name: thunder
+description: Wrapper pinning the upstream thunder chart for OpenChoreo
+type: application
+version: 0.1.0
+dependencies:
+  - name: thunder
+    version: 0.28.0
+    repository: oci://ghcr.io/asgardeo/helm-charts

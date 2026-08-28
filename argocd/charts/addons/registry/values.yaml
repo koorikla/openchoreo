@@ -1,0 +1,9 @@
+docker-registry:
+  fullnameOverride: registry
+
+  persistence:
+    enabled: true
+
+  service:
+    type: LoadBalancer
+    port: 10082

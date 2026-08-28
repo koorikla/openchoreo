@@ -1,0 +1,50 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: openchoreo-cp
+image: rancher/k3s:v1.36.4-k3s1
+servers: 1
+agents: 0
+kubeAPI:
+  hostPort: "6550"
+ports:
+  # Control plane 8xxx: console, API, Thunder, Argo CD UI
+  - port: 8080:8080
+    nodeFilters: [loadbalancer]
+  # Control plane HTTPS + cluster-gateway mTLS for the remote dp-prod agent
+  - port: 8443:8443
+    nodeFilters: [loadbalancer]
+  # Workflow plane 10xxx
+  - port: 10081:10081   # Argo Workflows UI
+    nodeFilters: [loadbalancer]
+  - port: 10082:10082   # container registry
+    nodeFilters: [loadbalancer]
+  # Observability plane 11xxx
+  - port: 11080:11080   # observer API
+    nodeFilters: [loadbalancer]
+  - port: 11081:5601    # OpenSearch Dashboards
+    nodeFilters: [loadbalancer]
+  - port: 11082:9200    # OpenSearch API
+    nodeFilters: [loadbalancer]
+  - port: 11084:9091    # Prometheus remote-write
+    nodeFilters: [loadbalancer]
+  - port: 11085:11085   # kgateway TLS passthrough for OpenSearch
+    nodeFilters: [loadbalancer]
+  - port: 11086:4317    # OTel collector
+    nodeFilters: [loadbalancer]
+  # Local data plane dp-nonprod 19xxx: workload ingress
+  - port: 19080:19080
+    nodeFilters: [loadbalancer]
+  - port: 19443:19443
+    nodeFilters: [loadbalancer]
+options:
+  k3s:
+    extraArgs:
+      - arg: "--disable=traefik"
+        nodeFilters: [server:*]
+registries:
+  config: |
+    mirrors:
+      "host.k3d.internal:10082":
+        endpoint:
+          - http://host.k3d.internal:10082

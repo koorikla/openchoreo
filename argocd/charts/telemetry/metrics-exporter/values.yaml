@@ -1,0 +1,27 @@
+# Metrics module, EXPORTER half. dp-prod only — on the cp cluster the receiver
+# in argocd/charts/observability/metrics-receiver scrapes dp-nonprod directly.
+#
+# multiClusterExporter swaps the central Prometheus for a PrometheusAgent that
+# scrapes locally and remote-writes to the observability plane, and drops the
+# metrics adapter (the Observer queries the receiver's Prometheus, not this one).
+# kube-prometheus-stack stays enabled because the agent needs its CRDs, the
+# prometheus-operator that reconciles the PrometheusAgent CR, and
+# kube-state-metrics as a scrape target.
+observability-metrics-prometheus:
+  global:
+    installationMode: multiClusterExporter
+
+  kube-prometheus-stack:
+    # Required: the chart refuses to render multiClusterExporter with the
+    # central Prometheus still on, since the PrometheusAgent does the scraping.
+    prometheus:
+      enabled: false
+    # Alerting is evaluated centrally, on the receiver's Prometheus.
+    alertmanager:
+      enabled: false
+
+  prometheusCustomizations:
+    http:
+      # The cp cluster's published gateway HTTP port; the receiver's HTTPRoute
+      # matches the /api/v1/write prefix and forwards to its Prometheus on 9091.
+      observabilityPlaneUrl: http://host.k3d.internal:11080/api/v1/write

@@ -1,14 +1,18 @@
+# The only manifest bootstrap/setup.sh applies by hand. Everything else is a
+# child Application under argocd/apps/, ordered by sync-wave.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
-  name: root-gitops
+  name: root
   namespace: argocd
 spec:
-  project: default
+  project: openchoreo
   source:
     repoURL: https://github.com/koorikla/openchoreo.git
     targetRevision: main
-    path: argocd
+    path: argocd/apps
+    directory:
+      recurse: true
   destination:
     server: https://kubernetes.default.svc
     namespace: argocd
@@ -16,3 +20,14 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    # Wave 30 cannot go Healthy until bootstrap/link-planes.sh completes the CA
+    # handshake, so root's sync operation stays Running for a long window. Retry
+    # keeps it recovering rather than failing outright.
+    retry:
+      limit: 20
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m

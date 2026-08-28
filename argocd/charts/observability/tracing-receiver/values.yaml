@@ -1,0 +1,40 @@
+# Tracing module, RECEIVER half. Runs on the cp cluster only.
+#
+# In multiClusterReceiver mode the chart renders an OTel collector that accepts
+# OTLP from remote clusters and writes traces into OpenSearch, plus the HTTPRoute
+# that publishes it on the observability gateway, plus the trace index setup Job
+# and the Observer query adapter. The k8sattributes processor is dropped in this
+# mode — enrichment happens in the exporter cluster, next to the pods.
+#
+# OpenSearch itself is NOT installed here: argocd/charts/observability/
+# logs-opensearch owns the single shared OpenSearch instance, and this chart's
+# collector/adapter/setup all address it at
+# opensearch.openchoreo-observability-plane.svc.cluster.local:9200.
+observability-tracing-opensearch:
+  global:
+    installationMode: multiClusterReceiver
+
+  openSearch:
+    enabled: false
+
+  openSearchCluster:
+    enabled: false
+
+  openSearchSetup:
+    enabled: true
+    openSearchSecretName: opensearch-admin-credentials
+
+  adapter:
+    enabled: true
+    openSearchSecretName: opensearch-admin-credentials
+
+  opentelemetryCollectorCustomizations:
+    http:
+      # Hostnames on the generated HTTPRoute. The first is the name dp-prod's
+      # exporter sends as its Host header; `host.k3d.internal` is needed too
+      # because the request physically arrives addressed to the published host
+      # port, and CoreDNS on both clusters rewrites *.openchoreo.localhost to
+      # that address.
+      hostnames:
+        - opentelemetry.observability.openchoreo.localhost
+        - host.k3d.internal

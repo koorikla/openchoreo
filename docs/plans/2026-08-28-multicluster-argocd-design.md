@@ -38,7 +38,7 @@ chart with two CEL escapes applied to its CRDs:
 | k8s 1.31.2 (the old kind node) | REJECTED — `compilation failed: undefined field 'var'` |
 | k8s 1.32.10 | accepted |
 | k8s 1.33.6 | accepted |
-| k3s 1.36.1 (target) | accepted — all 32/32 CRDs |
+| k3s 1.36.4 (target) | accepted — all 32/32 CRDs |
 
 Kubernetes 1.32 relaxed reserved-word handling. The fork was a correct workaround for a
 1.31 node and is obsolete on the target stack. The diff contained *nothing* but those
@@ -74,43 +74,82 @@ using the same immutable ComponentRelease and only a new ReleaseBinding.
 ## Repository layout
 
     bootstrap/
-      setup.sh                      # clusters -> Argo CD -> register -> root app -> link
-      link-planes.sh                # the two CA exchanges
+      setup.sh                      # clusters -> machine-id -> DNS -> Gateway API CRDs
+                                    #   -> Argo CD -> register dp-prod -> root app -> link
+      link-planes.sh                # the CA exchanges (see below)
       teardown.sh
       clusters/{cp,dp-prod}.yaml    # k3d configs, host-side, never synced
       coredns-custom.yaml
     argocd/
-      root-application.yaml         # the ONLY kubectl apply
-      project.yaml
-      apps/{cp,dp-prod,platform}/*.yaml
-    values/{cp,dp-prod}/*.yaml      # Helm values, referenced via $values
-    platform-shared/                # cluster-scoped CRs (see below)
-    namespaces/default/{platform,projects}     # namespaced CRs, upstream layout
+      project.yaml                  # AppProject, applied BEFORE the root app
+      root-application.yaml         # the ONLY manifest applied by hand
+      apps/
+        00-infrastructure-appset.yaml   # one ApplicationSet, RollingSync, 6 layers
+        platform/
+          00-platform-shared.yaml       # Application, wave 0 - the CRD barrier
+          10-namespaces-appset.yaml     # git generator over namespaces/*
+          20-platform-appset.yaml       # git generator over namespaces/*/platform
+          30-projects-appset.yaml       # git generator over namespaces/*/projects/*
+      charts/                       # wrapper charts: Chart.yaml + Chart.lock + values.yaml
+        addons/       (7)
+        planes/       (5)
+        observability/(3)           # receivers, cp only
+        telemetry/    (4)           # agents and cross-cluster exporters
+      manifests/                    # plain YAML, not charts
+        common/       ClusterSecretStore + ServiceAccount, both clusters
+        cp/           platform ExternalSecrets
+        dp-prod/      observability ExternalSecret
+        cp-routes/    Argo CD HTTPRoute
+    platform-shared/                # cluster-scoped CRs incl. all four plane registrations
+    namespaces/default/{platform,projects}
 
-Each file under `argocd/apps/` is one Argo CD Application: a multi-source Helm release
-(chart from OCI, `valueFiles: [$values/values/<cluster>/<x>.yaml]` from this repo) with
-`destination.name` selecting the cluster. Which chart, which version, which values, which
-cluster — all readable in one file.
+**Superseded during implementation.** The design originally called for a top-level `values/`
+tree referenced by multi-source Applications via `$values`, and per-cluster app directories
+(`argocd/apps/{cp,dp-prod}/`) holding one Application per chart. Both were replaced:
+
+- Values moved next to their version pins as wrapper charts, so each deployable is one
+  directory with `Chart.yaml` (dependency pin), `Chart.lock` (sha256 digest) and
+  `values.yaml` (overrides nested under the dependency name). Applications became
+  single-source git paths.
+- The 18 per-chart Applications collapsed into one ApplicationSet with a list generator,
+  and the platform Applications became git directory generators over `namespaces/*`,
+  `namespaces/*/platform` and `namespaces/*/projects/*` so the destination namespace is
+  derived from the tree rather than hardcoded.
 
 ## Sync ordering
 
-The current bug: sync-waves order resources *inside* one Application; they do not order
-across separate Applications. The three existing apps therefore race. Fix: a root
-app-of-apps whose children carry the waves, since child Applications are resources of the
-root.
+The original bug: sync-waves order resources *inside* one Application, not across separate
+Applications, so the three original apps raced. That is fixed, but the mechanism changed
+during implementation.
 
-| Wave | Contents |
-|---|---|
-| -20 | addons: cert-manager, ESO, kgateway, OpenBao, Thunder, registry, opensearch-operator |
-| -10 | planes: control/workflow/observability + data-plane `dp-nonprod` (cp), data-plane `dp-prod` (dp-prod) |
-| 0 | `platform-shared/` — ClusterProjectType, ClusterComponentTypes, ClusterResourceTypes, ClusterTraits, ClusterWorkflows, ClusterWorkflowTemplates, ClusterDataPlanes |
-| 10 | `namespaces/` — namespace.yaml only |
-| 20 | `namespaces/default/platform/` — Environments, ComponentTypes, Traits, Workflows, DeploymentPipeline |
-| 30 | `namespaces/default/projects/` — Projects, Components, Workloads, Releases, ReleaseBindings |
+An **ApplicationSet has no Argo CD health check**, so the root app-of-apps marks it Healthy
+the instant it exists. Sync-waves on an ApplicationSet therefore order only its own
+creation, never the readiness of the Applications it generates. Ordering comes from two
+places instead:
 
-Waves 10-30 reproduce upstream's Flux `dependsOn` chain. `namespaces` must sync *only*
-`default/namespace.yaml`; upstream does this with a `kustomization.yaml` that this fork
-dropped, which is why recursing `namespaces/` currently races platform against projects.
+**1. RollingSync inside `00-infrastructure-appset`** gates six layers, matching on the
+`openchoreo.dev/layer` label. It requires
+`applicationsetcontroller.enable.progressive.syncs=true`, set by `bootstrap/setup.sh`;
+without the flag the strategy is silently ignored.
+
+| Layer | Count | Why it must follow the previous one |
+|---|---|---|
+| addons | 12 | cert-manager CRDs + webhook, ESO CRDs, kgateway CRDs, OpenBao |
+| secrets | 4 | ExternalSecrets need ESO's CRDs and a running OpenBao |
+| planes | 5 | Backstage needs `backstage-secrets`, Observer needs `observer-secret` |
+| observability | 3 | receivers need the planes' namespaces and the observability gateway |
+| telemetry | 6 | Fluent Bit must not create `container-logs-*` before `openSearchSetup`'s PostSync hook applies the index template |
+| routes | 1 | the Argo CD HTTPRoute needs `gateway-default`, created in `planes` |
+
+**2. `platform/00-platform-shared` is a real Application at wave 0**, so root genuinely
+gates on it. Since it applies only OpenChoreo `Cluster*` custom resources, it acts as a
+**CRD barrier**: waves 10/20/30 cannot be created until the control-plane chart has
+installed the CRDs. Expect it to retry with `no matches for kind ClusterDataPlane` during
+bring-up; that is normal and self-correcting.
+
+Waves 20 and 30 race each other, which is benign — the API server does not validate
+cross-resource references, so Projects and ReleaseBindings apply immediately and their
+controllers reconcile once Environments and pipelines exist.
 
 ## Bootstrap, and what stays imperative
 

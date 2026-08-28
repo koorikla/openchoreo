@@ -2,8 +2,8 @@
 *.log
 bootstrap/.port-forward-*.log
 bootstrap/.port-forwards.pids
-bootstrap/config/coredns-patched.yaml
-bootstrap/config/coredns-original.yaml
+bootstrap/config/coredns-*.json
+.argocd-admin-password
 
 # IDE and OS files
 .idea/
@@ -23,3 +23,7 @@ bootstrap/config/coredns-original.yaml
 *.zip
 *.tar.gz
 *.rar
+
+# Vendored Helm subcharts fetched by `helm dependency update`; Argo CD rebuilds
+# them from each Chart.lock, so they are never committed.
+argocd/charts/**/charts/

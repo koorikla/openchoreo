@@ -1,0 +1,9 @@
+apiVersion: v2
+name: control-plane
+description: Wrapper pinning the upstream openchoreo-control-plane chart for OpenChoreo
+type: application
+version: 0.1.0
+dependencies:
+  - name: openchoreo-control-plane
+    version: 1.2.3
+    repository: oci://ghcr.io/openchoreo/helm-charts
