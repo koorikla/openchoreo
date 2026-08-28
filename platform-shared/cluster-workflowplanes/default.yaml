@@ -1,0 +1,21 @@
+# The build/workflow plane. Runs inside the cp cluster, in
+# openchoreo-workflow-plane. Every ClusterWorkflow under
+# platform-shared/cluster-workflows/ points its workflowPlaneRef at this object,
+# so without it every build dangles unresolved.
+apiVersion: openchoreo.dev/v1alpha1
+kind: ClusterWorkflowPlane
+metadata:
+  name: default
+spec:
+  planeID: default
+  clusterAgent:
+    clientCA:
+      # Populated by bootstrap/link-planes.sh once the agent has minted its CA.
+      # Using secretKeyRef instead of an inline value is what lets this manifest
+      # live in git as static YAML.
+      secretKeyRef:
+        name: workflow-plane-agent-ca
+        namespace: openchoreo-control-plane
+        key: ca.crt
+  secretStoreRef:
+    name: default

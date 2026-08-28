@@ -1,28 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Exchanges the mTLS CAs between the OpenChoreo control plane and both data
-# planes.
+# Exchanges the mTLS CAs between the OpenChoreo control plane and every other
+# plane: both data planes, the workflow plane and the observability plane.
 #
 # WHY THIS IS IMPERATIVE AND NOT GITOPS:
 # Both CAs are minted by the Helm charts at install time - the control plane's
-# cluster-gateway CA and each data-plane agent's own CA only exist once those
-# charts have actually run in a cluster. They therefore cannot be committed to
-# git and cannot be rendered by Argo CD; the only thing that can be declared
-# statically is the *reference* to them, which is what
-# platform-shared/cluster-dataplanes/*.yaml does via clientCA.secretKeyRef.
+# cluster-gateway CA and each plane agent's own CA only exist once those charts
+# have actually run in a cluster. They therefore cannot be committed to git and
+# cannot be rendered by Argo CD; the only thing that can be declared statically
+# is the *reference* to them, which is what
+# platform-shared/cluster-{dataplanes,workflowplanes,observabilityplanes}/*.yaml
+# do via clientCA.secretKeyRef.
 #
 # This script is safe to re-run: every write goes through `apply`, never a
 # bare `create`.
 
 CP_CONTEXT="k3d-openchoreo-cp"
+DP_PROD_CONTEXT="k3d-openchoreo-dp-prod"
 CONTROL_PLANE_NS="openchoreo-control-plane"
 DATA_PLANE_NS="openchoreo-data-plane"
 
 # context:plane-name pairs. dp-nonprod lives inside the cp cluster.
 PLANES=(
-    "k3d-openchoreo-cp:dp-nonprod"
-    "k3d-openchoreo-dp-prod:dp-prod"
+    "${CP_CONTEXT}:dp-nonprod"
+    "${DP_PROD_CONTEXT}:dp-prod"
+)
+
+# Exchange 2 sources: where each agent mints its cluster-agent-tls secret, and
+# the control-plane secret name the matching CR references through
+# spec.clusterAgent.clientCA.secretKeyRef. Format context:namespace:secret-name.
+AGENT_CA_SOURCES=(
+    "${CP_CONTEXT}:openchoreo-data-plane:dp-nonprod-agent-ca"
+    "${DP_PROD_CONTEXT}:openchoreo-data-plane:dp-prod-agent-ca"
+    "${CP_CONTEXT}:openchoreo-workflow-plane:workflow-plane-agent-ca"
+    "${CP_CONTEXT}:openchoreo-observability-plane:observability-plane-agent-ca"
 )
 
 step() { echo ""; echo "==> $1"; }
@@ -60,9 +72,11 @@ wait_for_secret() {
     fail "timed out after 20m waiting for secret ${secret} in namespace ${ns} on ${ctx}.
        The secret is minted by the OpenChoreo Helm chart that Argo CD installs.
        Inspect the relevant Argo CD Application:
-         cp / ${CONTROL_PLANE_NS}          -> cp-control-plane
-         cp / ${DATA_PLANE_NS}             -> cp-data-plane-nonprod
-         dp-prod / ${DATA_PLANE_NS}        -> dp-prod-data-plane
+         cp / ${CONTROL_PLANE_NS}                  -> cp-control-plane
+         cp / openchoreo-data-plane                -> cp-data-plane-nonprod
+         cp / openchoreo-workflow-plane            -> cp-workflow-plane
+         cp / openchoreo-observability-plane       -> cp-observability-plane
+         dp-prod / openchoreo-data-plane           -> dp-prod-data-plane
        e.g. kubectl --context ${CP_CONTEXT} -n argocd get application <name> -o yaml"
 }
 
@@ -89,25 +103,27 @@ push_gateway_ca() {
     done
 }
 
-# Exchange 2: each data-plane agent's own CA back into the control plane, under
-# the secret name the matching ClusterDataPlane references through
-# spec.clusterAgent.clientCA.secretKeyRef (dp-nonprod-agent-ca /
-# dp-prod-agent-ca, key ca.crt, namespace openchoreo-control-plane).
+# Exchange 2: each plane agent's own CA back into the control plane, under the
+# secret name the matching CR references through
+# spec.clusterAgent.clientCA.secretKeyRef (key ca.crt, namespace
+# openchoreo-control-plane).
 pull_agent_cas() {
-    step "Collecting the data-plane agent CAs into the control plane"
-    local entry ctx plane agent_ca
-    for entry in "${PLANES[@]}"; do
+    step "Collecting the plane agent CAs into the control plane"
+    local entry ctx rest ns secret agent_ca
+    for entry in "${AGENT_CA_SOURCES[@]}"; do
         ctx=${entry%%:*}
-        plane=${entry##*:}
+        rest=${entry#*:}
+        ns=${rest%%:*}
+        secret=${rest##*:}
 
-        wait_for_secret "$ctx" "$DATA_PLANE_NS" cluster-agent-tls
-        agent_ca=$(kubectl --context "$ctx" -n "$DATA_PLANE_NS" \
+        wait_for_secret "$ctx" "$ns" cluster-agent-tls
+        agent_ca=$(kubectl --context "$ctx" -n "$ns" \
                      get secret cluster-agent-tls -o jsonpath='{.data.ca\.crt}' | base64 -d)
-        [ -n "$agent_ca" ] || fail "cluster-agent-tls on ${ctx} contains no ca.crt"
+        [ -n "$agent_ca" ] || fail "cluster-agent-tls in ${ns} on ${ctx} contains no ca.crt"
 
-        info "installing ${plane}-agent-ca in ${CONTROL_PLANE_NS}"
+        info "installing ${secret} in ${CONTROL_PLANE_NS}"
         kubectl --context "$CP_CONTEXT" -n "$CONTROL_PLANE_NS" \
-            create secret generic "$plane-agent-ca" --from-literal=ca.crt="$agent_ca" \
+            create secret generic "$secret" --from-literal=ca.crt="$agent_ca" \
             --dry-run=client -o yaml | kubectl --context "$CP_CONTEXT" apply -f -
     done
 }
