@@ -1,3 +1,0 @@
-# The OpenSearch cluster itself comes from the observability-plane chart;
-# the operator runs with chart defaults.
-{}
