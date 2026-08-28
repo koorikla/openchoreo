@@ -12,12 +12,14 @@ metadata:
 spec:
   planeID: default
   clusterAgent:
+    # The agent's client cert is issued from the control plane's own
+    # cluster-gateway CA (clusterAgent.tls.generateCerts=false in the plane's
+    # chart values), so the CA the control plane must trust is simply its own.
+    # That secret is minted by the control-plane chart, not by
+    # bootstrap/link-planes.sh, so this reference is valid on day one.
     clientCA:
-      # Populated by bootstrap/link-planes.sh once the agent has minted its CA.
-      # Using secretKeyRef instead of an inline value is what lets this manifest
-      # live in git as static YAML.
       secretKeyRef:
-        name: observability-plane-agent-ca
+        name: cluster-gateway-ca
         namespace: openchoreo-control-plane
         key: ca.crt
   # Required field. Reached through the cp cluster's gateway on the
