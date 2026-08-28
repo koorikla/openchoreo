@@ -322,6 +322,30 @@ spec:
       destination:
         name: '{{.cluster}}'
         namespace: '{{.namespace}}'
+      # Gateway API's API server defaults group/kind on parentRefs and
+      # group/kind/weight on backendRefs. Argo CD's client-side diff reads those
+      # additions as drift, so route-bearing apps sit OutOfSync forever while
+      # being perfectly Healthy - and under RollingSync that is fatal, not
+      # cosmetic. These must live in the ApplicationSet template: patching a
+      # generated Application directly is silently reverted on the next
+      # reconcile.
+      ignoreDifferences:
+        - group: gateway.networking.k8s.io
+          kind: HTTPRoute
+          jqPathExpressions:
+            - .spec.parentRefs[].group
+            - .spec.parentRefs[].kind
+            - .spec.rules[].backendRefs[].group
+            - .spec.rules[].backendRefs[].kind
+            - .spec.rules[].backendRefs[].weight
+        - group: gateway.networking.k8s.io
+          kind: TLSRoute
+          jqPathExpressions:
+            - .spec.parentRefs[].group
+            - .spec.parentRefs[].kind
+            - .spec.rules[].backendRefs[].group
+            - .spec.rules[].backendRefs[].kind
+            - .spec.rules[].backendRefs[].weight
       syncPolicy:
         automated:
           prune: true
