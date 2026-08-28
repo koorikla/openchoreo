@@ -10,7 +10,14 @@
 
 **Design:** `docs/plans/2026-08-28-multicluster-argocd-design.md`
 
-**Repo URL used in all Application manifests:** `https://github.com/koorikla/openchoreo.git`, revision `main`.
+**Repo URL used in all Application manifests:** `https://github.com/koorikla/openchoreo.git`.
+**Git revision during development.** Every Application's `targetRevision` must point at the
+branch that actually contains these files. While developing on `feat/multicluster-argocd`,
+write `targetRevision: feat/multicluster-argocd` in every Application manifest — otherwise
+Argo CD syncs the old `main`, which has no `values/`, `argocd/apps/` or `platform-shared/`
+additions, and every app fails. Task 26 flips them all to `main` as the last step before
+merge. There is exactly one place this is easy to miss: the `ref: values` source in the
+multi-source Applications carries its own `targetRevision` too.
 
 ---
 
@@ -609,7 +616,7 @@ spec:
   project: openchoreo
   source:
     repoURL: https://github.com/koorikla/openchoreo.git
-    targetRevision: main
+    targetRevision: feat/multicluster-argocd
     path: argocd/apps
     directory:
       recurse: true
@@ -682,7 +689,7 @@ For charts taking a values file from this repo, use the multi-source form:
 ```yaml
   sources:
     - repoURL: https://github.com/koorikla/openchoreo.git
-      targetRevision: main
+      targetRevision: feat/multicluster-argocd
       ref: values
     - repoURL: ghcr.io/openbao/charts
       chart: openbao
@@ -719,7 +726,7 @@ spec:
   project: openchoreo
   sources:
     - repoURL: https://github.com/koorikla/openchoreo.git
-      targetRevision: main
+      targetRevision: feat/multicluster-argocd
       ref: values
     - repoURL: ghcr.io/openchoreo/helm-charts
       chart: openchoreo-data-plane
@@ -783,7 +790,7 @@ spec:
   project: openchoreo
   source:
     repoURL: https://github.com/koorikla/openchoreo.git
-    targetRevision: main
+    targetRevision: feat/multicluster-argocd
     path: platform-shared
     directory: {recurse: true}
   destination:
@@ -1003,3 +1010,21 @@ kgateway `2.4.3` running ahead of what OpenChoreo 1.2.3 is tested against. Pin t
 **Files:** Modify `docs/plans/2026-08-28-multicluster-argocd-design.md`
 
 Append a "Deviations" section recording anything the run forced to change (chart versions that moved, values keys that were renamed in 1.2.3, waves that needed reordering). Commit.
+
+### Task 26: Flip every targetRevision to main
+
+**Files:** every `*.yaml` under `argocd/` containing `targetRevision: feat/multicluster-argocd`
+
+Run only once Task 24 is green and the branch is ready to merge.
+
+```bash
+grep -rl "targetRevision: feat/multicluster-argocd" argocd/ \
+  | xargs sed -i '' 's|targetRevision: feat/multicluster-argocd|targetRevision: main|'
+grep -rn "targetRevision:" argocd/ | grep -v "targetRevision: main" | grep -vE "targetRevision: [0-9v]"
+```
+The second command must print nothing except chart version pins.
+
+Push the branch, merge to `main`, then re-run `./bootstrap/setup.sh` once from `main` to
+confirm the demo works from a clean clone of the default branch.
+
+**Commit:** `chore: point argo applications at main`
