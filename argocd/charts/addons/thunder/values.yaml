@@ -6,7 +6,7 @@ thunder:
 
   # Thunder v0.23.0+ manages its own HTTPRoute
   httproute:
-    enabled: true
+    enabled: false
     parentRefs:
       - name: gateway-default
         namespace: openchoreo-control-plane
