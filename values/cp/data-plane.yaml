@@ -1,0 +1,12 @@
+# Data plane "dp-nonprod": runs inside the cp cluster, serves development and staging.
+# Local to the control plane, so the agent uses the in-cluster service address.
+
+clusterAgent:
+  serverUrl: "wss://cluster-gateway.openchoreo-control-plane.svc.cluster.local:8443/ws"
+  planeID: dp-nonprod
+
+gateway:
+  httpPort: 19080
+  httpsPort: 19443
+  tls:
+    enabled: false
