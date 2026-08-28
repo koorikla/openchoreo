@@ -1,0 +1,29 @@
+apiVersion: k3d.io/v1alpha5
+kind: Simple
+metadata:
+  name: openchoreo-dp-prod
+image: rancher/k3s:v1.36.4-k3s1
+servers: 1
+agents: 0
+kubeAPI:
+  hostPort: "6551"
+ports:
+  - port: 29080:29080
+    nodeFilters: [loadbalancer]
+  - port: 29443:29443
+    nodeFilters: [loadbalancer]
+options:
+  k3s:
+    extraArgs:
+      # Required: Argo CD on the cp cluster reaches this API server as
+      # https://host.k3d.internal:6551, so that name must be in the cert SANs.
+      - arg: "--tls-san=host.k3d.internal"
+        nodeFilters: [server:*]
+      - arg: "--disable=traefik"
+        nodeFilters: [server:*]
+registries:
+  config: |
+    mirrors:
+      "host.k3d.internal:10082":
+        endpoint:
+          - http://host.k3d.internal:10082
