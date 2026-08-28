@@ -250,7 +250,7 @@ spec:
                           type: object
                           x-kubernetes-validations:
                           - message: var is required when forEach is specified
-                            rule: '!has(self.forEach) || has(self.var)'
+                            rule: '!has(self.forEach) || has(self.__var__)'
                         minItems: 1
                         type: array
                       traits:
@@ -450,7 +450,7 @@ spec:
                             type: object
                             x-kubernetes-validations:
                             - message: var is required when forEach is specified
-                              rule: '!has(self.forEach) || has(self.var)'
+                              rule: '!has(self.forEach) || has(self.__var__)'
                           type: array
                         environmentConfigs:
                           description: EnvironmentConfigs defines per-environment
@@ -572,7 +572,7 @@ spec:
                             type: object
                             x-kubernetes-validations:
                             - message: var is required when forEach is specified
-                              rule: '!has(self.forEach) || has(self.var)'
+                              rule: '!has(self.forEach) || has(self.__var__)'
                           type: array
                         validations:
                           description: |-
