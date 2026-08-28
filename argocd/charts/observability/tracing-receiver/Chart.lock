@@ -1,0 +1,6 @@
+dependencies:
+- name: observability-tracing-opensearch
+  repository: oci://ghcr.io/openchoreo/helm-charts
+  version: 0.6.0
+digest: sha256:1f7e4cf3d4fd01c88c1b2dd334b4aa7c64ed6e3aa25a4223480c9cd4c77d4251
+generated: "2026-08-28T06:15:48.832164+03:00"

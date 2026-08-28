@@ -1,0 +1,33 @@
+# TLS-passthrough route exposing OpenSearch through the observability plane's
+# gateway, so telemetry agents outside this cluster can reach it.
+#
+# This normally comes from the upstream chart's
+# templates/opensearch-cluster/tls-route.yaml, but that file is gated on
+# `openSearchCluster.enabled`, which we cannot turn on under Argo CD (see the
+# long note in values.yaml). Without the route the gateway's `tls` listener —
+# argocd/charts/planes/observability-plane/values.yaml sets
+# gateway.tlsPassthrough on port 11085 with this exact hostname — has nothing
+# attached to it, and dp-prod's Fluent Bit and event collector have no way in.
+#
+# SNI is what selects this route: dp-prod Fluent Bit sends it via
+# `tls.vhost`, and the events collector via the opensearchexporter's
+# `tls.server_name_override`. Both then skip certificate verification, because
+# the bundled OpenSearch StatefulSet serves a cert for `opensearch`, not for
+# this external hostname.
+apiVersion: gateway.networking.k8s.io/v1
+kind: TLSRoute
+metadata:
+  name: opensearch
+  namespace: {{ .Release.Namespace }}
+spec:
+  hostnames:
+    - "opensearch.observability.openchoreo.localhost"
+  parentRefs:
+    - name: gateway-default
+      namespace: {{ .Release.Namespace }}
+  rules:
+    - backendRefs:
+        - group: ""
+          kind: Service
+          name: opensearch
+          port: 9200

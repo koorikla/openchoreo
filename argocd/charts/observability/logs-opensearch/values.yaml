@@ -1,0 +1,66 @@
+# Logs module, RECEIVER half: the OpenSearch store, the index/ISM setup Job and
+# the Observer query adapter. Runs on the cp cluster only, because that is where
+# the observability plane lives.
+#
+# The Fluent Bit half of this same upstream chart is deliberately NOT enabled
+# here — it ships from argocd/charts/telemetry/logs-fluentbit in a LATER
+# RollingSync layer. See the `telemetry` step comment in
+# argocd/apps/00-infrastructure-appset.yaml for why the split exists.
+#
+# ---------------------------------------------------------------------------
+# Why openSearch (the bundled StatefulSet) and not openSearchCluster (operator)
+# ---------------------------------------------------------------------------
+# The upstream chart can provision OpenSearch two ways:
+#
+#   openSearch.enabled=true        -> the community `opensearch` Helm subchart
+#   openSearchCluster.enabled=true -> an OpenSearchCluster CR for opensearch-operator
+#
+# The operator path is unusable under GitOps: templates/opensearch-cluster/
+# secrets.yaml calls Helm's `lookup` to read the live
+# `opensearch-admin-credentials` Secret and bcrypt its password into
+# `opensearch-security-config`, and hard-`fail`s when the lookup comes back
+# empty. Argo CD's repo-server renders with plain `helm template` and has no
+# cluster connection, so `lookup` ALWAYS returns empty there (argoproj/argo-cd
+# #5202; the `--helm-server-dry-run` fix is still only a proposal, #21745).
+# The Application would never render, and because this element sits in a
+# RollingSync step, the whole chain (observability -> telemetry -> routes)
+# would deadlock behind it.
+#
+# So we use the bundled StatefulSet, which is exactly what the pre-Argo CD
+# bootstrap/setup.sh ran. Flip the two `enabled` flags below once upstream
+# gates that `lookup` behind a value (or Argo CD gains server-side dry-run).
+observability-logs-opensearch:
+  openSearch:
+    enabled: true
+    # Upstream defaults to a hard-coded literal here. Read the password from the
+    # same ExternalSecret every other component uses instead, so there is one
+    # source of truth (OpenBao key `opensearch-password`).
+    extraEnvs:
+      - name: OPENSEARCH_INITIAL_ADMIN_PASSWORD
+        valueFrom:
+          secretKeyRef:
+            name: opensearch-admin-credentials
+            key: password
+
+  openSearchCluster:
+    enabled: false
+    # Inert while enabled=false, but kept so flipping the flag needs no other edit.
+    credentialsSecretName: opensearch-admin-credentials
+    tlsRoute:
+      hostnames:
+        - opensearch.observability.openchoreo.localhost
+
+  # Applies the container-logs index template, the ISM retention policy and the
+  # alerting webhook. Runs as a Helm post-install/post-upgrade hook, which Argo
+  # CD executes as a PostSync hook.
+  openSearchSetup:
+    enabled: true
+    openSearchSecretName: opensearch-admin-credentials
+
+  # Translates the Observer's log queries into OpenSearch queries.
+  adapter:
+    enabled: true
+    openSearchSecretName: opensearch-admin-credentials
+
+  fluent-bit:
+    enabled: false
