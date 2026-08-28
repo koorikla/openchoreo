@@ -1,9 +1,0 @@
-apiVersion: v2
-name: opensearch-operator
-description: Wrapper pinning the upstream opensearch-operator chart for OpenChoreo
-type: application
-version: 0.1.0
-dependencies:
-  - name: opensearch-operator
-    version: 3.0.2
-    repository: https://opensearch-project.github.io/opensearch-k8s-operator/
