@@ -1,6 +1,6 @@
 # Cluster infrastructure: the addons (cert-manager, ESO, kgateway, OpenBao,
-# Thunder, registry, OpenSearch operator) and the OpenChoreo planes themselves,
-# for both clusters, generated from one list.
+# Thunder, registry, OpenSearch operator), the OpenChoreo planes themselves and
+# the observability modules, for both clusters, generated from one list.
 #
 # Most elements point at a local wrapper chart under argocd/charts/. The
 # wrapper's Chart.yaml pins the upstream chart version and its values.yaml holds
@@ -22,12 +22,12 @@ metadata:
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
-  # RollingSync gates addons -> secrets -> planes -> routes. This ordering
-  # CANNOT be expressed with sync-waves across separate ApplicationSets: an
-  # ApplicationSet has no health check, so the parent app-of-apps treats it as
-  # Healthy immediately and the waves order only object creation, not readiness.
-  # RollingSync also only orders steps within ONE ApplicationSet, which is why
-  # all four layers live in the same file.
+  # RollingSync gates addons -> secrets -> planes -> observability -> telemetry
+  # -> routes. This ordering CANNOT be expressed with sync-waves across separate
+  # ApplicationSets: an ApplicationSet has no health check, so the parent
+  # app-of-apps treats it as Healthy immediately and the waves order only object
+  # creation, not readiness. RollingSync also only orders steps within ONE
+  # ApplicationSet, which is why all six layers live in the same file.
   #
   # Requires applicationsetcontroller.enable.progressive.syncs=true, set by
   # bootstrap/setup.sh. Without it the strategy block is silently ignored and
@@ -35,16 +35,36 @@ spec:
   strategy:
     type: RollingSync
     rollingSync:
-      # The four layers form a strict dependency chain, and each arrow is a
+      # The six layers form a strict dependency chain, and each arrow is a
       # readiness dependency that only RollingSync can express:
       #
-      #   addons -> secrets -> planes -> routes
+      #   addons -> secrets -> planes -> observability -> telemetry -> routes
       #
       #   * secrets needs ESO's CRDs (ClusterSecretStore, ExternalSecret) and a
       #     running OpenBao to authenticate against — both come from addons.
       #   * planes needs the backstage-secrets and observer-secret Secrets to
       #     already be materialised: Backstage and the observer mount them by
       #     name and will not start otherwise. Those come from secrets.
+      #   * observability needs the observability plane's gateway-default
+      #     Gateway (the receivers attach HTTPRoutes and a TLSRoute to it) and
+      #     the opensearch-admin-credentials Secret. Gateway from planes,
+      #     Secret from secrets.
+      #   * telemetry MUST NOT be merged into observability. The agents are log
+      #     and event shippers; the receivers include an openSearchSetup Job
+      #     that applies the `container-logs-*` index template, the ISM
+      #     retention policy and the alerting webhook. If Fluent Bit writes the
+      #     first document before that template lands, OpenSearch creates the
+      #     index from dynamic mappings, the query adapter cannot read those
+      #     fields, and the Observer silently returns no logs — the failure the
+      #     pre-Argo CD bootstrap/setup.sh avoided by installing the logs module
+      #     with `fluent-bit.enabled=false` and only re-running
+      #     `helm upgrade --reuse-values --set fluent-bit.enabled=true` once the
+      #     receivers were up. `--reuse-values` has no GitOps equivalent, so the
+      #     two phases become two RollingSync steps and two charts:
+      #     argocd/charts/observability/logs-opensearch (store + setup +
+      #     adapter, Fluent Bit off) then argocd/charts/telemetry/logs-fluentbit
+      #     (Fluent Bit only). The same ordering is what lets the exporters find
+      #     the receivers' routes already published.
       #   * routes needs the gateway-default Gateway, which the control-plane
       #     chart creates in the planes layer. routes is therefore LAST: an
       #     HTTPRoute placed in an earlier step could never resolve its
@@ -64,6 +84,14 @@ spec:
             - key: openchoreo.dev/layer
               operator: In
               values: [planes]
+        - matchExpressions:
+            - key: openchoreo.dev/layer
+              operator: In
+              values: [observability]
+        - matchExpressions:
+            - key: openchoreo.dev/layer
+              operator: In
+              values: [telemetry]
         - matchExpressions:
             - key: openchoreo.dev/layer
               operator: In
@@ -170,6 +198,16 @@ spec:
             cluster: in-cluster
             namespace: openchoreo-control-plane
             path: argocd/manifests/cp
+          # dp-prod needs its own opensearch-admin-credentials: the Fluent Bit
+          # and event-collector agents in the telemetry layer mount it there to
+          # authenticate against the cp cluster's OpenSearch. dp-prod's own
+          # OpenBao seeds the identical literals, so both clusters resolve to
+          # the same credentials.
+          - name: dp-prod-observability-secrets
+            layer: secrets
+            cluster: dp-prod
+            namespace: openchoreo-observability-plane
+            path: argocd/manifests/dp-prod
           # === planes layer ==================================================
           # All five wrap the same chart repo at the same version; the pin lives
           # in each wrapper chart's Chart.yaml under argocd/charts/planes/, so an
@@ -199,6 +237,70 @@ spec:
             cluster: dp-prod
             namespace: openchoreo-data-plane
             path: argocd/charts/planes/data-plane-prod
+          # === observability layer ===========================================
+          # The RECEIVER half of the four observability modules. cp only: the
+          # observability plane lives there, and so does dp-nonprod, so the
+          # receivers double as that plane's local collectors.
+          #
+          # logs-opensearch owns the single shared OpenSearch instance; the
+          # tracing and metrics receivers point at it rather than standing up
+          # their own. All three publish themselves on the observability
+          # plane's gateway-default Gateway.
+          - name: cp-logs-opensearch
+            layer: observability
+            cluster: in-cluster
+            namespace: openchoreo-observability-plane
+            path: argocd/charts/observability/logs-opensearch
+          - name: cp-tracing-receiver
+            layer: observability
+            cluster: in-cluster
+            namespace: openchoreo-observability-plane
+            path: argocd/charts/observability/tracing-receiver
+          - name: cp-metrics-receiver
+            layer: observability
+            cluster: in-cluster
+            namespace: openchoreo-observability-plane
+            path: argocd/charts/observability/metrics-receiver
+          # === telemetry layer ===============================================
+          # The AGENT half. Deliberately a separate layer from observability —
+          # see the rollingSync comment above for the index-template race that
+          # ordering prevents.
+          #
+          # logs-fluentbit and events-otel are the same wrapper chart deployed
+          # to both clusters; both ship to host.k3d.internal:11085, the cp
+          # cluster's published TLS-passthrough port. The tracing and metrics
+          # exporters are dp-prod-only, because on cp the receivers already
+          # collect locally.
+          - name: cp-logs-fluentbit
+            layer: telemetry
+            cluster: in-cluster
+            namespace: openchoreo-observability-plane
+            path: argocd/charts/telemetry/logs-fluentbit
+          - name: dp-prod-logs-fluentbit
+            layer: telemetry
+            cluster: dp-prod
+            namespace: openchoreo-observability-plane
+            path: argocd/charts/telemetry/logs-fluentbit
+          - name: cp-events-otel
+            layer: telemetry
+            cluster: in-cluster
+            namespace: openchoreo-observability-plane
+            path: argocd/charts/telemetry/events-otel
+          - name: dp-prod-events-otel
+            layer: telemetry
+            cluster: dp-prod
+            namespace: openchoreo-observability-plane
+            path: argocd/charts/telemetry/events-otel
+          - name: dp-prod-tracing-exporter
+            layer: telemetry
+            cluster: dp-prod
+            namespace: openchoreo-observability-plane
+            path: argocd/charts/telemetry/tracing-exporter
+          - name: dp-prod-metrics-exporter
+            layer: telemetry
+            cluster: dp-prod
+            namespace: openchoreo-observability-plane
+            path: argocd/charts/telemetry/metrics-exporter
           # === routes layer ==================================================
           # Gateway API routes that attach to Gateways created by the planes
           # layer, so they can only sync once that layer is Healthy.
@@ -232,7 +334,7 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
-        # One generous retry budget for all four layers. It is sized for the planes:
+        # One generous retry budget for all six layers. It is sized for the planes:
         # each data-plane agent CrashLoops until bootstrap/link-planes.sh
         # installs the `cluster-gateway-ca` configmap, so those Applications stay
         # unhealthy for a long window on a cold bootstrap and must keep retrying
