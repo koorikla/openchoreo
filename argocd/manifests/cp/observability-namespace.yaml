@@ -1,0 +1,17 @@
+# The observability ExternalSecrets in this directory carry an explicit
+# metadata.namespace of openchoreo-observability-plane, but the Application's
+# destination is openchoreo-control-plane - and CreateNamespace=true only
+# creates the destination namespace, not namespaces named inside manifests.
+#
+# This namespace used to be created as a side effect of the opensearch-operator
+# addon, which was removed once it was found to be managing nothing (the logs
+# module runs OpenSearch as a bundled StatefulSet, not an OpenSearchCluster).
+# Removing it took the namespace with it, so declare it explicitly.
+#
+# sync-wave -1 so it lands before the ExternalSecrets that go into it.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: openchoreo-observability-plane
+  annotations:
+    argocd.argoproj.io/sync-wave: "-1"
