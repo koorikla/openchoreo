@@ -840,7 +840,14 @@ Structure, in order:
 4. `install_gateway_api_crds` — `kubectl apply --server-side -f` the Gateway API v1.6.1
    `standard-install.yaml` on both (imperative; Argo CD has no non-git source for it).
 5. `install_argocd` — helm install `argo/argo-cd` chart `10.4.0` into namespace `argocd` on cp
-   with `server.extraArgs={--insecure}` (it sits behind the gateway).
+   with `server.extraArgs={--insecure}` (it sits behind the gateway) AND progressive syncs
+   enabled, which Task 27's RollingSync depends on:
+
+       --set configs.params."applicationsetcontroller\.enable\.progressive\.syncs"=true
+
+   Verified: this lands as `applicationsetcontroller.enable.progressive.syncs: "true"` in
+   `argocd-cmd-params-cm`, which the applicationset-controller Deployment reads via
+   `ARGOCD_APPLICATIONSET_CONTROLLER_ENABLE_PROGRESSIVE_SYNCS`.
 6. `register_dp_prod` — build the Argo CD cluster Secret by hand from the dp-prod kubeconfig,
    **rewriting the server to `https://host.k3d.internal:6551`**.
 7. `apply_root_app` — `kubectl apply -f argocd/project.yaml -f argocd/root-application.yaml`.
@@ -1039,3 +1046,90 @@ Push the branch, merge to `main`, then re-run `./bootstrap/setup.sh` once from `
 confirm the demo works from a clean clone of the default branch.
 
 **Commit:** `chore: point argo applications at main`
+
+### Task 27: Merge the two ApplicationSets and add RollingSync
+
+**Files:** replace `argocd/apps/00-addons-appset.yaml` and `argocd/apps/01-planes-appset.yaml`
+with a single `argocd/apps/00-platform-appset.yaml`.
+
+WHY: an ApplicationSet has no Argo CD health check, so the `-20`/`-10` sync-wave annotations
+on the two CRs order only their own creation — not the readiness of the Applications they
+generate. Addon-before-plane ordering is therefore entirely retry-driven today, and the known
+failure is a plane chart applying a `Certificate` seconds after cert-manager reports Healthy
+but before its webhook is reachable (`failed calling webhook "webhook.cert-manager.io":
+connection refused`).
+
+`strategy.type: RollingSync` fixes this properly — but it orders steps only WITHIN one
+ApplicationSet, which is why the two files must merge first.
+
+```yaml
+spec:
+  strategy:
+    type: RollingSync
+    rollingSync:
+      steps:
+        - matchExpressions:
+            - key: openchoreo.dev/layer
+              operator: In
+              values: [addons]
+        - matchExpressions:
+            - key: openchoreo.dev/layer
+              operator: In
+              values: [planes]
+```
+
+Each list element gains a `layer` field (`addons` or `planes`), and the template stamps it as
+a label: `openchoreo.dev/layer: '{{.layer}}'`. Keep the per-layer retry difference (addons
+10/10s/3m, planes 20/15s/5m) by templating the retry from the element too, or accept the
+longer retry for both.
+
+Requires the controller flag from Task 20 step 5. Without it, `strategy` is silently ignored
+and behaviour falls back to today's concurrent apply — so verify the flag is set before
+concluding RollingSync works.
+
+**Commit:** `refactor: merge appsets and order layers with RollingSync`
+
+### Task 28: Convert the platform Applications to git-generator ApplicationSets
+
+**Files:** replace `argocd/apps/platform/{10-namespaces,20-platform,30-projects}.yaml` with
+ApplicationSets. `00-platform-shared.yaml` stays a plain Application (cluster-scoped, no
+per-namespace dimension).
+
+WHY: the three current Applications hardcode `namespaces/default/...` and pin every
+destination to `default`. That discards upstream's `namespaces/<namespace>/` layout — adding a
+second namespace would silently land its resources in `default`. A git directory generator
+derives both the path and the destination namespace from the tree:
+
+```yaml
+  generators:
+    - git:
+        repoURL: https://github.com/koorikla/openchoreo.git
+        revision: feat/multicluster-argocd
+        directories:
+          - path: namespaces/*
+  template:
+    metadata:
+      name: '{{.path.basename}}-platform'
+    spec:
+      source:
+        path: 'namespaces/{{.path.basename}}/platform'
+      destination:
+        name: in-cluster
+        namespace: '{{.path.basename}}'
+```
+
+| Wave | Name | Generates | Path | Notes |
+|---|---|---|---|---|
+| 10 | `namespaces` | `<ns>-namespace` | `namespaces/<ns>` | `directory.include: namespace.yaml` |
+| 20 | `platform` | `<ns>-platform` | `namespaces/<ns>/platform` | `directory.recurse: true` |
+| 30 | `projects` | `<ns>-projects` | `namespaces/<ns>/projects` | `directory.recurse: true` |
+
+All target `in-cluster` — these are OpenChoreo CRs living on the control plane, not in the
+data planes.
+
+SIDE EFFECT: this makes `namespaces/kustomization.yaml` (restored in Task 12) unused, because
+the wave-10 generator selects `namespace.yaml` directly via `directory.include`. Keep it for
+upstream parity but comment that Argo CD no longer reads it, or delete it — the earlier
+`directory:`-block hazard no longer applies since these are deliberately Directory-mode.
+
+**Commit:** `refactor: derive platform applications from the namespaces tree`
