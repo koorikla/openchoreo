@@ -22,3 +22,12 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+    # Wave 30 cannot go Healthy until bootstrap/link-planes.sh completes the CA
+    # handshake, so root's sync operation stays Running for a long window. Retry
+    # keeps it recovering rather than failing outright.
+    retry:
+      limit: 20
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m

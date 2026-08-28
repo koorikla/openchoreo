@@ -844,6 +844,12 @@ Structure, in order:
 6. `register_dp_prod` — build the Argo CD cluster Secret by hand from the dp-prod kubeconfig,
    **rewriting the server to `https://host.k3d.internal:6551`**.
 7. `apply_root_app` — `kubectl apply -f argocd/project.yaml -f argocd/root-application.yaml`.
+   ORDER IS LOAD-BEARING. `argocd/project.yaml` lives outside root's `path: argocd/apps`,
+   so root does not manage it, yet root and all four platform children declare
+   `project: openchoreo`. Apply the AppProject first or root fails with
+   "Application referencing project openchoreo which does not exist" and nothing syncs.
+   Moving `project.yaml` under `argocd/apps/` does NOT fix this — that is the
+   chicken-and-egg it would create.
 8. `link_planes` — call `bootstrap/link-planes.sh`.
 9. `print_summary` — URLs and the Argo CD admin password.
 
@@ -937,7 +943,12 @@ look at. Every step is `apply`, never `create`, so the script is safe to re-run.
 ```bash
 k3d cluster delete openchoreo-cp openchoreo-dp-prod
 ```
-with a `--keep-registry-cache` style guard and confirmation prompt unless `--yes`.
+with a confirmation prompt unless `--yes`.
+
+If a partial teardown is ever wanted (removing Argo CD apps without deleting the
+clusters), delete the `namespaces` Application with `--cascade=false`. It adopts the
+pre-existing `default` Namespace, and a cascading delete would try to remove `default`,
+which Kubernetes forbids — the deletion then hangs on a stuck finalizer.
 
 **Commit:** `feat: add teardown.sh`
 
