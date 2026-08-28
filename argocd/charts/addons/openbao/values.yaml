@@ -1,4 +1,10 @@
 openbao:
+  # The Argo CD Application name becomes the Helm release name, so this chart
+  # would render as cp-openbao on one cluster and dp-prod-openbao on the other.
+  # argocd/manifests/common/secret-store.yaml is shared by BOTH clusters and
+  # addresses openbao.openbao.svc, so the service name has to be stable.
+  # Same fix the registry chart already uses.
+  fullnameOverride: openbao
   injector:
     enabled: false
 
