@@ -7,3 +7,15 @@ docker-registry:
   service:
     type: LoadBalancer
     port: 10082
+
+  # The chart generates haSharedSecret with randAlphaNum when unset, so every
+  # Helm render produces a different Secret. Under Argo CD that makes
+  # Secret/registry-secret - and the Deployment, via its checksum annotation -
+  # permanently OutOfSync. With RollingSync that is fatal rather than merely
+  # noisy: the addons step never completes and every later layer stays Waiting.
+  #
+  # Pinned to a fixed value so renders are deterministic. This secret only
+  # coordinates multiple registry replicas; there is one replica here, and the
+  # registry is a local build cache reachable only inside the cluster.
+  secrets:
+    haSharedSecret: "openchoreo-local-registry-shared-secret"
