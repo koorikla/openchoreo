@@ -1,6 +1,9 @@
-# The OpenChoreo planes themselves. All five come from the same chart repo at
-# the same version, so repoURL and targetRevision are hardcoded in the template
-# and only chart/namespace/values/destination vary per element.
+# The OpenChoreo planes themselves. All five wrap the same chart repo at the
+# same version; the pin lives in each wrapper chart's Chart.yaml under
+# argocd/charts/planes/, so an element only names its destination and the
+# wrapper path. Argo CD's repo-server runs `helm dependency build` against the
+# committed Chart.lock to fetch the pinned upstream chart, which is why these
+# are SINGLE-source git Applications.
 #
 # ORDERING CAVEAT: like the addons set, an ApplicationSet has no Argo CD health
 # check, so the sync-wave below orders only the creation of this CR — it does
@@ -28,29 +31,24 @@ spec:
         elements:
           - name: cp-control-plane
             cluster: in-cluster
-            chart: openchoreo-control-plane
             namespace: openchoreo-control-plane
-            valuesFile: values/cp/control-plane.yaml
+            chartPath: argocd/charts/planes/control-plane
           - name: cp-workflow-plane
             cluster: in-cluster
-            chart: openchoreo-workflow-plane
             namespace: openchoreo-workflow-plane
-            valuesFile: values/cp/workflow-plane.yaml
+            chartPath: argocd/charts/planes/workflow-plane
           - name: cp-observability-plane
             cluster: in-cluster
-            chart: openchoreo-observability-plane
             namespace: openchoreo-observability-plane
-            valuesFile: values/cp/observability-plane.yaml
+            chartPath: argocd/charts/planes/observability-plane
           - name: cp-data-plane-nonprod
             cluster: in-cluster
-            chart: openchoreo-data-plane
             namespace: openchoreo-data-plane
-            valuesFile: values/cp/data-plane.yaml
+            chartPath: argocd/charts/planes/data-plane-nonprod
           - name: dp-prod-data-plane
             cluster: dp-prod
-            chart: openchoreo-data-plane
             namespace: openchoreo-data-plane
-            valuesFile: values/dp-prod/data-plane.yaml
+            chartPath: argocd/charts/planes/data-plane-prod
   template:
     metadata:
       name: '{{.name}}'
@@ -58,19 +56,10 @@ spec:
         argocd.argoproj.io/sync-wave: "-10"
     spec:
       project: openchoreo
-      sources:
-        # `ref: values` resolves against the REPO ROOT, and every valuesFile
-        # already starts with `values/`, so the rendered path is
-        # `$values/values/cp/control-plane.yaml`. The doubled segment is correct.
-        - repoURL: https://github.com/koorikla/openchoreo.git
-          targetRevision: feat/multicluster-argocd
-          ref: values
-        - repoURL: ghcr.io/openchoreo/helm-charts
-          chart: '{{.chart}}'
-          targetRevision: 1.2.3
-          helm:
-            valueFiles:
-              - $values/{{.valuesFile}}
+      source:
+        repoURL: https://github.com/koorikla/openchoreo.git
+        targetRevision: feat/multicluster-argocd
+        path: '{{.chartPath}}'
       destination:
         name: '{{.cluster}}'
         namespace: '{{.namespace}}'
