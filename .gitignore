@@ -2,8 +2,8 @@
 *.log
 bootstrap/.port-forward-*.log
 bootstrap/.port-forwards.pids
-bootstrap/config/coredns-patched.yaml
-bootstrap/config/coredns-original.yaml
+bootstrap/config/coredns-*.json
+.argocd-admin-password
 
 # IDE and OS files
 .idea/
