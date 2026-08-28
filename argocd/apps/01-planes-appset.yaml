@@ -1,0 +1,89 @@
+# The OpenChoreo planes themselves. All five come from the same chart repo at
+# the same version, so repoURL and targetRevision are hardcoded in the template
+# and only chart/namespace/values/destination vary per element.
+#
+# ORDERING CAVEAT: like the addons set, an ApplicationSet has no Argo CD health
+# check, so the sync-wave below orders only the creation of this CR — it does
+# not wait for the addons in wave -20 to become Healthy. Ordering is
+# retry-driven; `spec.strategy.type: RollingSync` is the upgrade path if
+# first-sync flakes appear.
+#
+# RETRY: deliberately more generous than the addons set (limit 20, 15s base,
+# up to 5m) because each data-plane agent CrashLoops until
+# bootstrap/link-planes.sh installs the `cluster-gateway-ca` configmap. Those
+# Applications therefore stay unhealthy for a long window on a cold bootstrap
+# and must keep retrying rather than fail out.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: planes
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-10"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          - name: cp-control-plane
+            cluster: in-cluster
+            chart: openchoreo-control-plane
+            namespace: openchoreo-control-plane
+            valuesFile: values/cp/control-plane.yaml
+          - name: cp-workflow-plane
+            cluster: in-cluster
+            chart: openchoreo-workflow-plane
+            namespace: openchoreo-workflow-plane
+            valuesFile: values/cp/workflow-plane.yaml
+          - name: cp-observability-plane
+            cluster: in-cluster
+            chart: openchoreo-observability-plane
+            namespace: openchoreo-observability-plane
+            valuesFile: values/cp/observability-plane.yaml
+          - name: cp-data-plane-nonprod
+            cluster: in-cluster
+            chart: openchoreo-data-plane
+            namespace: openchoreo-data-plane
+            valuesFile: values/cp/data-plane.yaml
+          - name: dp-prod-data-plane
+            cluster: dp-prod
+            chart: openchoreo-data-plane
+            namespace: openchoreo-data-plane
+            valuesFile: values/dp-prod/data-plane.yaml
+  template:
+    metadata:
+      name: '{{.name}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: "-10"
+    spec:
+      project: openchoreo
+      sources:
+        # `ref: values` resolves against the REPO ROOT, and every valuesFile
+        # already starts with `values/`, so the rendered path is
+        # `$values/values/cp/control-plane.yaml`. The doubled segment is correct.
+        - repoURL: https://github.com/koorikla/openchoreo.git
+          targetRevision: feat/multicluster-argocd
+          ref: values
+        - repoURL: ghcr.io/openchoreo/helm-charts
+          chart: '{{.chart}}'
+          targetRevision: 1.2.3
+          helm:
+            valueFiles:
+              - $values/{{.valuesFile}}
+      destination:
+        name: '{{.cluster}}'
+        namespace: '{{.namespace}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 20
+          backoff:
+            duration: 15s
+            factor: 2
+            maxDuration: 5m
