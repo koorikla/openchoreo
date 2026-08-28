@@ -1,0 +1,27 @@
+# Data plane serving development and staging. Runs inside the cp cluster.
+apiVersion: openchoreo.dev/v1alpha1
+kind: ClusterDataPlane
+metadata:
+  name: dp-nonprod
+spec:
+  planeID: dp-nonprod
+  clusterAgent:
+    clientCA:
+      # Populated by bootstrap/link-planes.sh once the agent has minted its CA.
+      # Using secretKeyRef instead of an inline value is what lets this manifest
+      # live in git as static YAML.
+      secretKeyRef:
+        name: dp-nonprod-agent-ca
+        namespace: openchoreo-control-plane
+        key: ca.crt
+  secretStoreRef:
+    name: default
+  gateway:
+    ingress:
+      external:
+        http:
+          host: nonprod.openchoreoapis.localhost
+          listenerName: http
+          port: 19080
+        name: gateway-default
+        namespace: openchoreo-data-plane
