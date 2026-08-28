@@ -19,12 +19,14 @@ set -euo pipefail
 CP_CONTEXT="k3d-openchoreo-cp"
 DP_PROD_CONTEXT="k3d-openchoreo-dp-prod"
 CONTROL_PLANE_NS="openchoreo-control-plane"
-DATA_PLANE_NS="openchoreo-data-plane"
 
-# context:plane-name pairs. dp-nonprod lives inside the cp cluster.
-PLANES=(
-    "${CP_CONTEXT}:dp-nonprod"
-    "${DP_PROD_CONTEXT}:dp-prod"
+# Exchange 1 targets: every namespace that runs a cluster agent and therefore
+# mounts the cluster-gateway-ca configmap. Format context:namespace.
+GATEWAY_CA_TARGETS=(
+    "${CP_CONTEXT}:openchoreo-data-plane"
+    "${CP_CONTEXT}:openchoreo-workflow-plane"
+    "${CP_CONTEXT}:openchoreo-observability-plane"
+    "${DP_PROD_CONTEXT}:openchoreo-data-plane"
 )
 
 # Exchange 2 sources: where each agent mints its cluster-agent-tls secret, and
@@ -80,10 +82,12 @@ wait_for_secret() {
        e.g. kubectl --context ${CP_CONTEXT} -n argocd get application <name> -o yaml"
 }
 
-# Exchange 1: the control plane's cluster-gateway CA into both data-plane
-# namespaces, so each agent trusts the gateway it dials.
+# Exchange 1: the control plane's cluster-gateway CA into every plane namespace,
+# so each agent trusts the gateway it dials. The data-plane, workflow-plane and
+# observability-plane charts all mount this configmap by name and their agent
+# pods will not start without it.
 push_gateway_ca() {
-    step "Distributing the cluster-gateway CA to both data planes"
+    step "Distributing the cluster-gateway CA to every plane namespace"
     wait_for_secret "$CP_CONTEXT" "$CONTROL_PLANE_NS" cluster-gateway-ca
 
     local ca
@@ -91,14 +95,14 @@ push_gateway_ca() {
            get secret cluster-gateway-ca -o jsonpath='{.data.ca\.crt}' | base64 -d)
     [ -n "$ca" ] || fail "cluster-gateway-ca contains no ca.crt"
 
-    local entry ctx plane
-    for entry in "${PLANES[@]}"; do
+    local entry ctx ns
+    for entry in "${GATEWAY_CA_TARGETS[@]}"; do
         ctx=${entry%%:*}
-        plane=${entry##*:}
-        info "installing cluster-gateway-ca configmap for ${plane} on ${ctx}"
-        kubectl --context "$ctx" create namespace "$DATA_PLANE_NS" \
+        ns=${entry##*:}
+        info "installing cluster-gateway-ca configmap in ${ns} on ${ctx}"
+        kubectl --context "$ctx" create namespace "$ns" \
             --dry-run=client -o yaml | kubectl --context "$ctx" apply -f -
-        kubectl --context "$ctx" -n "$DATA_PLANE_NS" create configmap cluster-gateway-ca \
+        kubectl --context "$ctx" -n "$ns" create configmap cluster-gateway-ca \
             --from-literal=ca.crt="$ca" --dry-run=client -o yaml | kubectl --context "$ctx" apply -f -
     done
 }
