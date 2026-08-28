@@ -951,3 +951,9 @@ thunder:
 
           log_info "FinOps Agent application created successfully"
         fi
+
+  # k3s's default local-path StorageClass uses WaitForFirstConsumer, which
+  # deadlocks this chart's pre-install PVC hook under Argo CD. See
+  # argocd/manifests/storage/local-path-immediate.yaml.
+  persistence:
+    storageClass: local-path-immediate

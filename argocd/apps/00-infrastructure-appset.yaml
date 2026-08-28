@@ -169,6 +169,19 @@ spec:
             cluster: in-cluster
             namespace: openchoreo-workflow-plane
             path: argocd/charts/addons/registry
+          # StorageClass with Immediate binding, needed before Thunder's
+          # pre-install PVC hook can bind. Same layer as thunder so it lands
+          # within seconds of it; the PVC stays Pending until it exists.
+          - name: cp-storageclass
+            layer: addons
+            cluster: in-cluster
+            namespace: kube-system
+            path: argocd/manifests/storage
+          - name: dp-prod-storageclass
+            layer: addons
+            cluster: dp-prod
+            namespace: kube-system
+            path: argocd/manifests/storage
           # === secrets layer =================================================
           # Plain-manifest directories, not wrapper charts — the `path` field is
           # shared with the chart elements above because the template only ever
