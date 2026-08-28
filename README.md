@@ -8,7 +8,7 @@ The headline moment: promoting a component from `staging` to `production` moves 
 `ReleaseBinding`. Nothing is rebuilt, nothing is re-pushed — the promotion is one more
 declarative object in git.
 
-Everything except two CA exchanges and the Gateway API CRDs is declarative. See
+Everything except one CA push and the Gateway API CRDs is declarative. See
 [The two imperative steps](#the-two-imperative-steps-and-why) for exactly what is not, and why.
 
 ---
@@ -157,7 +157,7 @@ kubectl --context k3d-openchoreo-cp -n argocd get secret argocd-initial-admin-se
 ```
 bootstrap/
   setup.sh                      # clusters -> DNS -> Gateway API CRDs -> Argo CD -> root app -> link
-  link-planes.sh                # the two mTLS CA exchanges (see below)
+  link-planes.sh                # pushes the control plane mTLS CA to every plane (see below)
   teardown.sh                   # deletes both k3d clusters
   coredns-custom.yaml           # *.openchoreo(apis).localhost -> host.k3d.internal
   clusters/
@@ -349,24 +349,29 @@ release URL, on both clusters. An Argo CD `Application` has no non-git source ty
 pull a plain manifest from an arbitrary HTTP address, so there is nowhere declarative to put
 this. Server-side apply keeps the step re-runnable.
 
-### 2. `bootstrap/link-planes.sh` — the two CA exchanges
+### 2. `bootstrap/link-planes.sh` — the one-way CA push
 
-The control plane and the data-plane agents authenticate to each other with mTLS. Both CAs
-are **minted by the Helm charts at install time**, so they do not exist until the charts have
-actually run in a cluster. They can never be committed to git; the only thing that can be
-declared statically is the *reference* to them, which is what
+The control plane and the plane agents authenticate to each other with mTLS. The CA is
+**minted by the control-plane Helm chart at install time**, so it does not exist until that
+chart has actually run in a cluster. It can never be committed to git; the only thing that
+can be declared statically is the *reference* to it, which is what
 `platform-shared/cluster-dataplanes/*.yaml` does through `clusterAgent.clientCA.secretKeyRef`.
 
-The script performs two exchanges:
+The script pushes that one CA outwards, and nothing comes back:
 
 | Direction | What moves | Where it lands |
 |---|---|---|
-| control plane → data planes | secret `cluster-gateway-ca` (`openchoreo-control-plane`) | configmap `cluster-gateway-ca` in `openchoreo-data-plane` on **both** clusters |
-| each data plane → control plane | secret `cluster-agent-tls` (`openchoreo-data-plane`) | secrets `dp-nonprod-agent-ca` / `dp-prod-agent-ca` in `openchoreo-control-plane` |
+| control plane → every plane | secret `cluster-gateway-ca` (`openchoreo-control-plane`), all three keys | secret **and** configmap `cluster-gateway-ca` in each agent namespace, on both clusters |
 
-**It must run while the plane Applications are still unhealthy.** Each data-plane agent
-CrashLoops until the `cluster-gateway-ca` configmap exists, so those Applications stay
-unhealthy until this script has run. Waiting for the planes to go Healthy first would
+Both objects are load-bearing. The secret (`clusterAgent.tls.caSecretName`) feeds the agent's
+cert-manager CA `Issuer`, which needs `tls.key` to sign; the configmap
+(`clusterAgent.tls.serverCAConfigMap`) is mounted at `/ca-certs` so the agent can verify the
+gateway's server certificate. Dropping the configmap reintroduces the agent CrashLoop.
+
+**It must run while the plane Applications are still unhealthy.** Each plane agent CrashLoops
+until the `cluster-gateway-ca` configmap exists, and its client `Certificate` stays unissued
+until the `cluster-gateway-ca` secret exists, so those Applications stay unhealthy until this
+script has run. Waiting for the planes to go Healthy first would
 deadlock: the script is the thing that makes them healthy. This is why `setup.sh` calls it
 immediately after applying the root app rather than after any readiness gate, and why the
 plane Applications carry a generous retry budget.
@@ -374,6 +379,27 @@ plane Applications carry a generous retry budget.
 The script is **idempotent** — every write goes through `apply`, never a bare `create` — so
 it is safe to re-run at any time. Its waits time out after 20 minutes per secret; on a slow
 cold start, re-running it is the correct response.
+
+### Trust model
+
+Each plane's cluster-agent needs a client certificate the control plane will accept, and the
+`openchoreo-*-plane` charts offer two ways to get one:
+
+- **`clusterAgent.tls.generateCerts: true`** (upstream default) — the plane mints its own
+  self-signed CA. The control plane has no idea it exists, so after install the plane's CA
+  must be copied back into `openchoreo-control-plane` as a `<plane>-agent-ca` secret. That CA
+  cannot be committed to git, so the trust setup can never be fully declarative.
+- **`clusterAgent.tls.generateCerts: false`** (what this repo uses) — cert-manager issues the
+  agent's certificate from the control plane's *own* `cluster-gateway-ca`. The control plane
+  trusts that CA by definition, so there is no return leg and every plane CR can name
+  `cluster-gateway-ca` as static YAML in git.
+
+The catch: a cert-manager CA `Issuer` signs locally, so it needs the CA's **private key**.
+`link-planes.sh` therefore copies the control plane's signing key into every plane namespace.
+Any plane holding it can mint a certificate the control plane trusts — impersonating another
+plane, or (since the same CA signs the gateway's server cert) the gateway itself. Upstream
+defaults to `true` precisely to keep per-plane CA isolation. Trading that away for a
+declarative bootstrap is fine for a laptop demo and wrong for a real deployment.
 
 ---
 
