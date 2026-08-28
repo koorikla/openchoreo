@@ -1,17 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Exchanges the mTLS CAs between the OpenChoreo control plane and every other
-# plane: both data planes, the workflow plane and the observability plane.
+# Pushes the OpenChoreo control plane's cluster-gateway CA out to every other
+# plane namespace: both data planes, the workflow plane and the observability
+# plane.
 #
-# WHY THIS IS IMPERATIVE AND NOT GITOPS:
-# Both CAs are minted by the Helm charts at install time - the control plane's
-# cluster-gateway CA and each plane agent's own CA only exist once those charts
-# have actually run in a cluster. They therefore cannot be committed to git and
-# cannot be rendered by Argo CD; the only thing that can be declared statically
-# is the *reference* to them, which is what
+# ONE-WAY, NOT AN EXCHANGE:
+# This used to be a two-way exchange. Each plane's cluster-agent minted its own
+# self-signed CA, so the control plane had to be told about it afterwards under
+# a per-plane `<plane>-agent-ca` secret. That CA did not exist until the plane
+# chart had run, so it could never be committed to git.
+#
+# The plane charts now set `clusterAgent.tls.generateCerts: false`, which makes
+# cert-manager issue each agent's client certificate from the control plane's
+# own cluster-gateway CA. The control plane trusts that CA by definition, so the
+# return leg disappeared: every plane CR under
 # platform-shared/cluster-{dataplanes,workflowplanes,observabilityplanes}/*.yaml
-# do via clientCA.secretKeyRef.
+# now references `cluster-gateway-ca` directly and nothing has to be collected
+# back. All that is left is pushing the CA outwards.
+#
+# The trade-off is deliberate and demo-scoped: a cert-manager CA Issuer signs
+# locally, so it needs the CA's PRIVATE KEY. That is why this script copies the
+# whole `cluster-gateway-ca` secret (tls.crt, tls.key, ca.crt) rather than just
+# the public certificate. Any plane holding that key can mint a certificate the
+# control plane trusts. See the "Trust model" section of README.md.
+#
+# WHY THIS IS STILL IMPERATIVE AND NOT GITOPS:
+# The cluster-gateway CA is minted by the control-plane Helm chart at install
+# time. It only exists once that chart has actually run, so it cannot be
+# committed to git or rendered by Argo CD.
+#
+# Each plane namespace needs the CA under TWO different objects, and both are
+# load-bearing:
+#   * secret    cluster-gateway-ca -> clusterAgent.tls.caSecretName, consumed by
+#                                     the agent's cert-manager CA Issuer, which
+#                                     needs tls.crt + tls.key to sign.
+#   * configmap cluster-gateway-ca -> clusterAgent.tls.serverCAConfigMap, mounted
+#                                     at /ca-certs by the agent Deployment so it
+#                                     can verify the gateway's server cert.
+# Dropping the configmap reintroduces an agent CrashLoop; dropping the secret
+# leaves the Certificate permanently unissued.
 #
 # This script is safe to re-run: every write goes through `apply`, never a
 # bare `create`.
@@ -20,23 +48,14 @@ CP_CONTEXT="k3d-openchoreo-cp"
 DP_PROD_CONTEXT="k3d-openchoreo-dp-prod"
 CONTROL_PLANE_NS="openchoreo-control-plane"
 
-# Exchange 1 targets: every namespace that runs a cluster agent and therefore
-# mounts the cluster-gateway-ca configmap. Format context:namespace.
+# Every namespace that runs a cluster agent and therefore needs both the
+# cluster-gateway-ca secret and the cluster-gateway-ca configmap.
+# Format context:namespace.
 GATEWAY_CA_TARGETS=(
     "${CP_CONTEXT}:openchoreo-data-plane"
     "${CP_CONTEXT}:openchoreo-workflow-plane"
     "${CP_CONTEXT}:openchoreo-observability-plane"
     "${DP_PROD_CONTEXT}:openchoreo-data-plane"
-)
-
-# Exchange 2 sources: where each agent mints its cluster-agent-tls secret, and
-# the control-plane secret name the matching CR references through
-# spec.clusterAgent.clientCA.secretKeyRef. Format context:namespace:secret-name.
-AGENT_CA_SOURCES=(
-    "${CP_CONTEXT}:openchoreo-data-plane:dp-nonprod-agent-ca"
-    "${DP_PROD_CONTEXT}:openchoreo-data-plane:dp-prod-agent-ca"
-    "${CP_CONTEXT}:openchoreo-workflow-plane:workflow-plane-agent-ca"
-    "${CP_CONTEXT}:openchoreo-observability-plane:observability-plane-agent-ca"
 )
 
 step() { echo ""; echo "==> $1"; }
@@ -82,59 +101,48 @@ wait_for_secret() {
        e.g. kubectl --context ${CP_CONTEXT} -n argocd get application <name> -o yaml"
 }
 
-# Exchange 1: the control plane's cluster-gateway CA into every plane namespace,
-# so each agent trusts the gateway it dials. The data-plane, workflow-plane and
-# observability-plane charts all mount this configmap by name and their agent
-# pods will not start without it.
+# The control plane's cluster-gateway CA - certificate AND signing key - into
+# every plane namespace, as both a secret (for the agent's CA Issuer) and a
+# configmap (for the agent Deployment's /ca-certs mount).
 push_gateway_ca() {
     step "Distributing the cluster-gateway CA to every plane namespace"
     wait_for_secret "$CP_CONTEXT" "$CONTROL_PLANE_NS" cluster-gateway-ca
 
-    local ca
-    ca=$(kubectl --context "$CP_CONTEXT" -n "$CONTROL_PLANE_NS" \
-           get secret cluster-gateway-ca -o jsonpath='{.data.ca\.crt}' | base64 -d)
-    [ -n "$ca" ] || fail "cluster-gateway-ca contains no ca.crt"
+    local tls_crt tls_key ca_crt
+    tls_crt=$(kubectl --context "$CP_CONTEXT" -n "$CONTROL_PLANE_NS" \
+                get secret cluster-gateway-ca -o jsonpath='{.data.tls\.crt}' | base64 -d)
+    tls_key=$(kubectl --context "$CP_CONTEXT" -n "$CONTROL_PLANE_NS" \
+                get secret cluster-gateway-ca -o jsonpath='{.data.tls\.key}' | base64 -d)
+    ca_crt=$(kubectl --context "$CP_CONTEXT" -n "$CONTROL_PLANE_NS" \
+               get secret cluster-gateway-ca -o jsonpath='{.data.ca\.crt}' | base64 -d)
+    [ -n "$tls_crt" ] || fail "cluster-gateway-ca contains no tls.crt"
+    # The private key is what the CA Issuer signs with; without it every agent
+    # Certificate stays pending forever.
+    [ -n "$tls_key" ] || fail "cluster-gateway-ca contains no tls.key"
+    [ -n "$ca_crt" ] || fail "cluster-gateway-ca contains no ca.crt"
 
     local entry ctx ns
     for entry in "${GATEWAY_CA_TARGETS[@]}"; do
         ctx=${entry%%:*}
         ns=${entry##*:}
-        info "installing cluster-gateway-ca configmap in ${ns} on ${ctx}"
+        info "installing cluster-gateway-ca secret + configmap in ${ns} on ${ctx}"
         kubectl --context "$ctx" create namespace "$ns" \
             --dry-run=client -o yaml | kubectl --context "$ctx" apply -f -
+        # kubernetes.io/tls to match the source secret; a secret's type is
+        # immutable, so an Opaque copy here would be a one-way mistake.
+        kubectl --context "$ctx" -n "$ns" create secret generic cluster-gateway-ca \
+            --type=kubernetes.io/tls \
+            --from-literal=tls.crt="$tls_crt" \
+            --from-literal=tls.key="$tls_key" \
+            --from-literal=ca.crt="$ca_crt" \
+            --dry-run=client -o yaml | kubectl --context "$ctx" apply -f -
         kubectl --context "$ctx" -n "$ns" create configmap cluster-gateway-ca \
-            --from-literal=ca.crt="$ca" --dry-run=client -o yaml | kubectl --context "$ctx" apply -f -
-    done
-}
-
-# Exchange 2: each plane agent's own CA back into the control plane, under the
-# secret name the matching CR references through
-# spec.clusterAgent.clientCA.secretKeyRef (key ca.crt, namespace
-# openchoreo-control-plane).
-pull_agent_cas() {
-    step "Collecting the plane agent CAs into the control plane"
-    local entry ctx rest ns secret agent_ca
-    for entry in "${AGENT_CA_SOURCES[@]}"; do
-        ctx=${entry%%:*}
-        rest=${entry#*:}
-        ns=${rest%%:*}
-        secret=${rest##*:}
-
-        wait_for_secret "$ctx" "$ns" cluster-agent-tls
-        agent_ca=$(kubectl --context "$ctx" -n "$ns" \
-                     get secret cluster-agent-tls -o jsonpath='{.data.ca\.crt}' | base64 -d)
-        [ -n "$agent_ca" ] || fail "cluster-agent-tls in ${ns} on ${ctx} contains no ca.crt"
-
-        info "installing ${secret} in ${CONTROL_PLANE_NS}"
-        kubectl --context "$CP_CONTEXT" -n "$CONTROL_PLANE_NS" \
-            create secret generic "$secret" --from-literal=ca.crt="$agent_ca" \
-            --dry-run=client -o yaml | kubectl --context "$CP_CONTEXT" apply -f -
+            --from-literal=ca.crt="$ca_crt" --dry-run=client -o yaml | kubectl --context "$ctx" apply -f -
     done
 }
 
 main() {
     push_gateway_ca
-    pull_agent_cas
     step "Plane linking complete"
 }
 
