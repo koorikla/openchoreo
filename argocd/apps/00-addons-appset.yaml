@@ -1,6 +1,12 @@
 # Cluster addons (cert-manager, ESO, kgateway, OpenBao, Thunder, registry,
 # OpenSearch operator) for both clusters, generated from one list.
 #
+# Each element points at a local wrapper chart under argocd/charts/addons/.
+# The wrapper's Chart.yaml pins the upstream chart version and its values.yaml
+# holds the overrides, so these Applications need only a SINGLE git source.
+# Argo CD's repo-server runs `helm dependency build` against the committed
+# Chart.lock to fetch the pinned upstream chart.
+#
 # ORDERING CAVEAT: an ApplicationSet has no Argo CD health check of its own —
 # it is Healthy the moment the CR exists. The sync-wave annotation below
 # therefore orders only the creation of this ApplicationSet relative to the
@@ -27,102 +33,64 @@ spec:
           # --- cert-manager -------------------------------------------------
           - name: cp-cert-manager
             cluster: in-cluster
-            repoURL: quay.io/jetstack/charts
-            chart: cert-manager
-            version: v1.21.1
             namespace: cert-manager
-            valuesFile: values/common/cert-manager.yaml
+            chartPath: argocd/charts/addons/cert-manager
           - name: dp-prod-cert-manager
             cluster: dp-prod
-            repoURL: quay.io/jetstack/charts
-            chart: cert-manager
-            version: v1.21.1
             namespace: cert-manager
-            valuesFile: values/common/cert-manager.yaml
+            chartPath: argocd/charts/addons/cert-manager
           # --- external-secrets ---------------------------------------------
           - name: cp-external-secrets
             cluster: in-cluster
-            repoURL: ghcr.io/external-secrets/charts
-            chart: external-secrets
-            version: 2.9.0
             namespace: external-secrets
-            valuesFile: values/common/external-secrets.yaml
+            chartPath: argocd/charts/addons/external-secrets
           - name: dp-prod-external-secrets
             cluster: dp-prod
-            repoURL: ghcr.io/external-secrets/charts
-            chart: external-secrets
-            version: 2.9.0
             namespace: external-secrets
-            valuesFile: values/common/external-secrets.yaml
+            chartPath: argocd/charts/addons/external-secrets
           # --- kgateway CRDs -------------------------------------------------
           - name: cp-kgateway-crds
             cluster: in-cluster
-            repoURL: cr.kgateway.dev/kgateway-dev/charts
-            chart: kgateway-crds
-            version: 2.4.3
             namespace: openchoreo-control-plane
-            valuesFile: values/common/kgateway.yaml
+            chartPath: argocd/charts/addons/kgateway-crds
           - name: dp-prod-kgateway-crds
             cluster: dp-prod
-            repoURL: cr.kgateway.dev/kgateway-dev/charts
-            chart: kgateway-crds
-            version: 2.4.3
             namespace: openchoreo-data-plane
-            valuesFile: values/common/kgateway.yaml
+            chartPath: argocd/charts/addons/kgateway-crds
           # --- kgateway ------------------------------------------------------
           - name: cp-kgateway
             cluster: in-cluster
-            repoURL: cr.kgateway.dev/kgateway-dev/charts
-            chart: kgateway
-            version: 2.4.3
             namespace: openchoreo-control-plane
-            valuesFile: values/common/kgateway.yaml
+            chartPath: argocd/charts/addons/kgateway
           - name: dp-prod-kgateway
             cluster: dp-prod
-            repoURL: cr.kgateway.dev/kgateway-dev/charts
-            chart: kgateway
-            version: 2.4.3
             namespace: openchoreo-data-plane
-            valuesFile: values/common/kgateway.yaml
+            chartPath: argocd/charts/addons/kgateway
           # --- OpenBao -------------------------------------------------------
           - name: cp-openbao
             cluster: in-cluster
-            repoURL: ghcr.io/openbao/charts
-            chart: openbao
-            version: 0.29.3
             namespace: openbao
-            valuesFile: values/common/openbao.yaml
+            chartPath: argocd/charts/addons/openbao
           - name: dp-prod-openbao
             cluster: dp-prod
-            repoURL: ghcr.io/openbao/charts
-            chart: openbao
-            version: 0.29.3
             namespace: openbao
-            valuesFile: values/common/openbao.yaml
+            chartPath: argocd/charts/addons/openbao
           # --- control-plane-only addons -------------------------------------
           - name: cp-thunder
             cluster: in-cluster
-            repoURL: ghcr.io/asgardeo/helm-charts
-            chart: thunder
-            version: 0.36.0
             namespace: thunder
-            valuesFile: values/cp/thunder.yaml
-          # These two use classic HTTPS chart repos rather than OCI registries;
-          # Argo CD tells the forms apart by the presence of the URL scheme.
+            chartPath: argocd/charts/addons/thunder
+          # registry and the OpenSearch operator come from classic HTTPS chart
+          # repos rather than OCI registries; that distinction now lives in the
+          # wrapper Chart.yaml dependencies, not here.
           - name: cp-registry
             cluster: in-cluster
-            repoURL: https://twuni.github.io/docker-registry.helm
-            chart: docker-registry
-            version: 3.0.0
             namespace: openchoreo-workflow-plane
-            valuesFile: values/cp/registry.yaml
+            chartPath: argocd/charts/addons/registry
           - name: cp-opensearch-operator
             cluster: in-cluster
-            repoURL: https://opensearch-project.github.io/opensearch-k8s-operator/
-            chart: opensearch-operator
-            version: 3.0.2
             namespace: openchoreo-observability-plane
-            valuesFile: values/common/opensearch-operator.yaml
+            chartPath: argocd/charts/addons/opensearch-operator
   template:
     metadata:
       name: '{{.name}}'
@@ -130,19 +98,10 @@ spec:
         argocd.argoproj.io/sync-wave: "-20"
     spec:
       project: openchoreo
-      sources:
-        # `ref: values` resolves against the REPO ROOT, and every valuesFile
-        # already starts with `values/`, so the rendered path is
-        # `$values/values/common/openbao.yaml`. The doubled segment is correct.
-        - repoURL: https://github.com/koorikla/openchoreo.git
-          targetRevision: feat/multicluster-argocd
-          ref: values
-        - repoURL: '{{.repoURL}}'
-          chart: '{{.chart}}'
-          targetRevision: '{{.version}}'
-          helm:
-            valueFiles:
-              - $values/{{.valuesFile}}
+      source:
+        repoURL: https://github.com/koorikla/openchoreo.git
+        targetRevision: feat/multicluster-argocd
+        path: '{{.chartPath}}'
       destination:
         name: '{{.cluster}}'
         namespace: '{{.namespace}}'
