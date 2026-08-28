@@ -15,11 +15,12 @@ immutable `ComponentRelease` and only a new `ReleaseBinding`.
 | Decision | Choice | Why |
 |---|---|---|
 | Runtime | k3d (was kind) | Upstream's multi-cluster reference is k3d; its loadbalancer removes the in-node port forwarder |
-| Topology | 3 clusters: `cp`, `dp-nonprod`, `dp-prod` | Two data planes make it a real multi-cluster story, not just plane separation |
+| Topology | 2 clusters: `cp` (also hosting data plane `dp-nonprod`), `dp-prod` | Keeps the cross-cluster promotion story at half the resource cost |
 | Observability | Folded into `cp` | Data planes export to it cross-cluster, which is itself a multi-cluster demo |
 | Workflow plane | On `cp` | Needed for build→PR→deploy loop and the shared registry |
 | GitOps scope | Argo CD owns addons + planes + CRs | Only the two CA exchanges stay imperative |
-| OpenChoreo version | 1.2.3 (was 1.1.6) | Latest; matches current docs |
+| OpenChoreo version | 1.2.3 (was 1.1.6) | Latest available |
+| All addon versions | Current releases, not the doc-pinned ones | Clean install; validated with `helm template` |
 | Forked control-plane chart | **Deleted** | Proven unnecessary on k8s >= 1.32 (see below) |
 
 ## The forked chart: deleted, with evidence
@@ -46,22 +47,29 @@ escapes, so it is deleted outright along with the byte-identical duplicate in
 
 ## Topology
 
+Two clusters. The `cp` cluster runs the control, workflow and observability planes, Argo CD,
+**and** a local data plane serving the non-production environments — the same shape as the
+single-cluster quickstart. Production gets its own cluster.
+
 | Cluster | kubeAPI | Ports | Contents |
 |---|---|---|---|
-| `openchoreo-cp` | 6550 | 8080/8443, 10081/10082, 11080/11081/11082/11084/11085/11086 | control plane, workflow plane, observability plane, Argo CD |
-| `openchoreo-dp-nonprod` | 6551 | 19080/19443 | data plane — `development`, `staging` |
-| `openchoreo-dp-prod` | 6552 | 29080/29443 | data plane — `production` |
+| `openchoreo-cp` | 6550 | 8080/8443, 10081/10082, 11080-11086, 19080/19443 | control, workflow, observability planes; Argo CD; data plane `dp-nonprod` |
+| `openchoreo-dp-prod` | 6551 | 29080/29443 | data plane `dp-prod` |
 
-Data-plane agents dial `wss://cluster-gateway.openchoreo.localhost:8443/ws`, resolved to
-`host.k3d.internal` by the CoreDNS rewrite, terminating on the CP cluster-gateway
-TLSRoute. Both data planes mirror `host.k3d.internal:10082` for registry pulls and export
-logs/metrics/traces to the CP observability plane in `multiClusterExporter` mode.
+The local `dp-nonprod` agent reaches the cluster-gateway over its in-cluster service address.
+The remote `dp-prod` agent dials `wss://cluster-gateway.openchoreo.localhost:8443/ws`,
+resolved to `host.k3d.internal` by the CoreDNS rewrite and terminating on the CP
+cluster-gateway TLSRoute. `dp-prod` mirrors `host.k3d.internal:10082` for registry pulls and
+exports logs/metrics/traces to the CP observability plane in `multiClusterExporter` mode.
 
 Environment -> data plane mapping:
 
-    development -> ClusterDataPlane/dp-nonprod
-    staging     -> ClusterDataPlane/dp-nonprod
-    production  -> ClusterDataPlane/dp-prod     <- promotion crosses clusters
+    development -> ClusterDataPlane/dp-nonprod   (cp cluster)
+    staging     -> ClusterDataPlane/dp-nonprod   (cp cluster)
+    production  -> ClusterDataPlane/dp-prod      (dp-prod cluster)
+
+So `staging -> production` promotion still moves the workload across a cluster boundary,
+using the same immutable ComponentRelease and only a new ReleaseBinding.
 
 ## Repository layout
 
@@ -69,13 +77,13 @@ Environment -> data plane mapping:
       setup.sh                      # clusters -> Argo CD -> register -> root app -> link
       link-planes.sh                # the two CA exchanges
       teardown.sh
-      clusters/{cp,dp-nonprod,dp-prod}.yaml    # k3d configs, host-side, never synced
+      clusters/{cp,dp-prod}.yaml    # k3d configs, host-side, never synced
       coredns-custom.yaml
     argocd/
       root-application.yaml         # the ONLY kubectl apply
       project.yaml
-      apps/{cp,dp-nonprod,dp-prod,platform}/*.yaml
-    values/{cp,dp-nonprod,dp-prod}/*.yaml      # Helm values, referenced via $values
+      apps/{cp,dp-prod,platform}/*.yaml
+    values/{cp,dp-prod}/*.yaml      # Helm values, referenced via $values
     platform-shared/                # cluster-scoped CRs (see below)
     namespaces/default/{platform,projects}     # namespaced CRs, upstream layout
 
@@ -94,7 +102,7 @@ root.
 | Wave | Contents |
 |---|---|
 | -20 | addons: cert-manager, ESO, kgateway, OpenBao, Thunder, registry, opensearch-operator |
-| -10 | planes: control/workflow/observability (cp), data-plane (both dp) |
+| -10 | planes: control/workflow/observability + data-plane `dp-nonprod` (cp), data-plane `dp-prod` (dp-prod) |
 | 0 | `platform-shared/` — ClusterProjectType, ClusterComponentTypes, ClusterResourceTypes, ClusterTraits, ClusterWorkflows, ClusterWorkflowTemplates, ClusterDataPlanes |
 | 10 | `namespaces/` — namespace.yaml only |
 | 20 | `namespaces/default/platform/` — Environments, ComponentTypes, Traits, Workflows, DeploymentPipeline |
@@ -110,13 +118,13 @@ Two CA exchanges cannot be pure GitOps, because the certificates do not exist un
 charts have run:
 
     setup.sh
-      1. k3d cluster create x3            (installs k3d if absent)
+      1. k3d cluster create x2            (installs k3d if absent)
       2. helm install argocd on cp + HTTPRoute argocd.openchoreo.localhost:8080
-      3. argocd cluster add dp-nonprod, dp-prod
-         (server URL rewritten to https://host.k3d.internal:655x)
+      3. register dp-prod as an Argo CD cluster secret
+         (server URL rewritten to https://host.k3d.internal:6551)
       4. kubectl apply -f argocd/root-application.yaml
       5. link-planes.sh
-           cp  cluster-gateway-ca secret -> configmap in each dp cluster
+           cp  cluster-gateway-ca secret -> configmap in both data-plane namespaces
            dp  cluster-agent-tls  secret -> secrets dp-{nonprod,prod}-agent-ca in cp
 
 `ClusterDataPlane` uses `clusterAgent.clientCA.secretKeyRef` (verified present in the
