@@ -2,11 +2,16 @@
 # Thunder, registry, OpenSearch operator) and the OpenChoreo planes themselves,
 # for both clusters, generated from one list.
 #
-# Each element points at a local wrapper chart under argocd/charts/. The
+# Most elements point at a local wrapper chart under argocd/charts/. The
 # wrapper's Chart.yaml pins the upstream chart version and its values.yaml holds
 # the overrides, so these Applications need only a SINGLE git source. Argo CD's
 # repo-server runs `helm dependency build` against the committed Chart.lock to
 # fetch the pinned upstream chart.
+#
+# The secrets and routes layers instead point at plain-manifest directories
+# under argocd/manifests/ — the shared `path` field covers both, since the
+# template feeds it straight to source.path and Argo CD auto-detects a Directory
+# source when there is no `helm:` block.
 apiVersion: argoproj.io/v1alpha1
 kind: ApplicationSet
 metadata:
@@ -17,12 +22,12 @@ metadata:
 spec:
   goTemplate: true
   goTemplateOptions: ["missingkey=error"]
-  # RollingSync gates addons before planes. This ordering CANNOT be expressed
-  # with sync-waves across two ApplicationSets: an ApplicationSet has no health
-  # check, so the parent app-of-apps treats it as Healthy immediately and the
-  # waves order only object creation, not readiness. RollingSync also only
-  # orders steps within ONE ApplicationSet, which is why addons and planes live
-  # in the same file.
+  # RollingSync gates addons -> secrets -> planes -> routes. This ordering
+  # CANNOT be expressed with sync-waves across separate ApplicationSets: an
+  # ApplicationSet has no health check, so the parent app-of-apps treats it as
+  # Healthy immediately and the waves order only object creation, not readiness.
+  # RollingSync also only orders steps within ONE ApplicationSet, which is why
+  # all four layers live in the same file.
   #
   # Requires applicationsetcontroller.enable.progressive.syncs=true, set by
   # bootstrap/setup.sh. Without it the strategy block is silently ignored and
@@ -30,6 +35,22 @@ spec:
   strategy:
     type: RollingSync
     rollingSync:
+      # The four layers form a strict dependency chain, and each arrow is a
+      # readiness dependency that only RollingSync can express:
+      #
+      #   addons -> secrets -> planes -> routes
+      #
+      #   * secrets needs ESO's CRDs (ClusterSecretStore, ExternalSecret) and a
+      #     running OpenBao to authenticate against — both come from addons.
+      #   * planes needs the backstage-secrets and observer-secret Secrets to
+      #     already be materialised: Backstage and the observer mount them by
+      #     name and will not start otherwise. Those come from secrets.
+      #   * routes needs the gateway-default Gateway, which the control-plane
+      #     chart creates in the planes layer. routes is therefore LAST: an
+      #     HTTPRoute placed in an earlier step could never resolve its
+      #     parentRef, so it would never report Healthy and RollingSync would
+      #     deadlock on that step forever rather than moving on to create the
+      #     Gateway it is waiting for.
       steps:
         - matchExpressions:
             - key: openchoreo.dev/layer
@@ -38,7 +59,15 @@ spec:
         - matchExpressions:
             - key: openchoreo.dev/layer
               operator: In
+              values: [secrets]
+        - matchExpressions:
+            - key: openchoreo.dev/layer
+              operator: In
               values: [planes]
+        - matchExpressions:
+            - key: openchoreo.dev/layer
+              operator: In
+              values: [routes]
   generators:
     - list:
         elements:
@@ -48,62 +77,62 @@ spec:
             layer: addons
             cluster: in-cluster
             namespace: cert-manager
-            chartPath: argocd/charts/addons/cert-manager
+            path: argocd/charts/addons/cert-manager
           - name: dp-prod-cert-manager
             layer: addons
             cluster: dp-prod
             namespace: cert-manager
-            chartPath: argocd/charts/addons/cert-manager
+            path: argocd/charts/addons/cert-manager
           # --- external-secrets ---------------------------------------------
           - name: cp-external-secrets
             layer: addons
             cluster: in-cluster
             namespace: external-secrets
-            chartPath: argocd/charts/addons/external-secrets
+            path: argocd/charts/addons/external-secrets
           - name: dp-prod-external-secrets
             layer: addons
             cluster: dp-prod
             namespace: external-secrets
-            chartPath: argocd/charts/addons/external-secrets
+            path: argocd/charts/addons/external-secrets
           # --- kgateway CRDs -------------------------------------------------
           - name: cp-kgateway-crds
             layer: addons
             cluster: in-cluster
             namespace: openchoreo-control-plane
-            chartPath: argocd/charts/addons/kgateway-crds
+            path: argocd/charts/addons/kgateway-crds
           - name: dp-prod-kgateway-crds
             layer: addons
             cluster: dp-prod
             namespace: openchoreo-data-plane
-            chartPath: argocd/charts/addons/kgateway-crds
+            path: argocd/charts/addons/kgateway-crds
           # --- kgateway ------------------------------------------------------
           - name: cp-kgateway
             layer: addons
             cluster: in-cluster
             namespace: openchoreo-control-plane
-            chartPath: argocd/charts/addons/kgateway
+            path: argocd/charts/addons/kgateway
           - name: dp-prod-kgateway
             layer: addons
             cluster: dp-prod
             namespace: openchoreo-data-plane
-            chartPath: argocd/charts/addons/kgateway
+            path: argocd/charts/addons/kgateway
           # --- OpenBao -------------------------------------------------------
           - name: cp-openbao
             layer: addons
             cluster: in-cluster
             namespace: openbao
-            chartPath: argocd/charts/addons/openbao
+            path: argocd/charts/addons/openbao
           - name: dp-prod-openbao
             layer: addons
             cluster: dp-prod
             namespace: openbao
-            chartPath: argocd/charts/addons/openbao
+            path: argocd/charts/addons/openbao
           # --- control-plane-only addons -------------------------------------
           - name: cp-thunder
             layer: addons
             cluster: in-cluster
             namespace: thunder
-            chartPath: argocd/charts/addons/thunder
+            path: argocd/charts/addons/thunder
           # registry and the OpenSearch operator come from classic HTTPS chart
           # repos rather than OCI registries; that distinction now lives in the
           # wrapper Chart.yaml dependencies, not here.
@@ -111,12 +140,36 @@ spec:
             layer: addons
             cluster: in-cluster
             namespace: openchoreo-workflow-plane
-            chartPath: argocd/charts/addons/registry
+            path: argocd/charts/addons/registry
           - name: cp-opensearch-operator
             layer: addons
             cluster: in-cluster
             namespace: openchoreo-observability-plane
-            chartPath: argocd/charts/addons/opensearch-operator
+            path: argocd/charts/addons/opensearch-operator
+          # === secrets layer =================================================
+          # Plain-manifest directories, not wrapper charts — the `path` field is
+          # shared with the chart elements above because the template only ever
+          # feeds it to source.path, and with no `helm:` block Argo CD
+          # auto-detects a Directory source for these.
+          #
+          # The ClusterSecretStore goes to both clusters; the platform
+          # ExternalSecrets are control-plane-only because Backstage, the
+          # observer and OpenSearch only run there.
+          - name: cp-secret-store
+            layer: secrets
+            cluster: in-cluster
+            namespace: openbao
+            path: argocd/manifests/common
+          - name: dp-prod-secret-store
+            layer: secrets
+            cluster: dp-prod
+            namespace: openbao
+            path: argocd/manifests/common
+          - name: cp-platform-secrets
+            layer: secrets
+            cluster: in-cluster
+            namespace: openchoreo-control-plane
+            path: argocd/manifests/cp
           # === planes layer ==================================================
           # All five wrap the same chart repo at the same version; the pin lives
           # in each wrapper chart's Chart.yaml under argocd/charts/planes/, so an
@@ -125,27 +178,35 @@ spec:
             layer: planes
             cluster: in-cluster
             namespace: openchoreo-control-plane
-            chartPath: argocd/charts/planes/control-plane
+            path: argocd/charts/planes/control-plane
           - name: cp-workflow-plane
             layer: planes
             cluster: in-cluster
             namespace: openchoreo-workflow-plane
-            chartPath: argocd/charts/planes/workflow-plane
+            path: argocd/charts/planes/workflow-plane
           - name: cp-observability-plane
             layer: planes
             cluster: in-cluster
             namespace: openchoreo-observability-plane
-            chartPath: argocd/charts/planes/observability-plane
+            path: argocd/charts/planes/observability-plane
           - name: cp-data-plane-nonprod
             layer: planes
             cluster: in-cluster
             namespace: openchoreo-data-plane
-            chartPath: argocd/charts/planes/data-plane-nonprod
+            path: argocd/charts/planes/data-plane-nonprod
           - name: dp-prod-data-plane
             layer: planes
             cluster: dp-prod
             namespace: openchoreo-data-plane
-            chartPath: argocd/charts/planes/data-plane-prod
+            path: argocd/charts/planes/data-plane-prod
+          # === routes layer ==================================================
+          # Gateway API routes that attach to Gateways created by the planes
+          # layer, so they can only sync once that layer is Healthy.
+          - name: cp-argocd-route
+            layer: routes
+            cluster: in-cluster
+            namespace: argocd
+            path: argocd/manifests/cp-routes
   template:
     metadata:
       name: '{{.name}}'
@@ -160,7 +221,7 @@ spec:
       source:
         repoURL: https://github.com/koorikla/openchoreo.git
         targetRevision: feat/multicluster-argocd
-        path: '{{.chartPath}}'
+        path: '{{.path}}'
       destination:
         name: '{{.cluster}}'
         namespace: '{{.namespace}}'
@@ -171,7 +232,7 @@ spec:
         syncOptions:
           - CreateNamespace=true
           - ServerSideApply=true
-        # One generous retry budget for both layers. It is sized for the planes:
+        # One generous retry budget for all four layers. It is sized for the planes:
         # each data-plane agent CrashLoops until bootstrap/link-planes.sh
         # installs the `cluster-gateway-ca` configmap, so those Applications stay
         # unhealthy for a long window on a cold bootstrap and must keep retrying
