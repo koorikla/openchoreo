@@ -1,0 +1,15 @@
+# ProjectReleaseBindings materialise the project's cell namespace in each
+# environment. spec.projectRelease is deliberately left unset; the Project
+# controller seeds it with the latest ProjectRelease.
+apiVersion: openchoreo.dev/v1alpha1
+kind: ProjectReleaseBinding
+metadata:
+  name: doclet-development
+  namespace: default
+  labels:
+    openchoreo.dev/project: doclet
+    openchoreo.dev/environment: development
+spec:
+  owner:
+    projectName: doclet
+  environment: development
