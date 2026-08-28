@@ -169,11 +169,6 @@ spec:
             cluster: in-cluster
             namespace: openchoreo-workflow-plane
             path: argocd/charts/addons/registry
-          - name: cp-opensearch-operator
-            layer: addons
-            cluster: in-cluster
-            namespace: openchoreo-observability-plane
-            path: argocd/charts/addons/opensearch-operator
           # === secrets layer =================================================
           # Plain-manifest directories, not wrapper charts — the `path` field is
           # shared with the chart elements above because the template only ever
