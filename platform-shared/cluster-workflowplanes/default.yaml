@@ -19,3 +19,10 @@ spec:
         key: ca.crt
   secretStoreRef:
     name: default
+  # Links this plane to ClusterObservabilityPlane/default. The GitOps
+  # equivalent of the `kubectl patch` the deleted bootstrap/setup.sh ran after
+  # creating the observability plane. Without it the alert-rule traits, which
+  # gate on ${has(dataplane.observabilityPlaneRef)}, stay silently dead.
+  observabilityPlaneRef:
+    kind: ClusterObservabilityPlane
+    name: default
