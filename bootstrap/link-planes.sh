@@ -37,15 +37,25 @@ wait_for_secret() {
     local ctx="$1" ns="$2" secret="$3"
     local attempts=120 i=1
 
-    info "waiting for secret ${secret} in ${ns} on ${ctx}"
+    info "waiting for secret ${secret} in ${ns} on ${ctx} (up to 20m)"
     while [ "$i" -le "$attempts" ]; do
         if kubectl --context "$ctx" -n "$ns" get secret "$secret" >/dev/null 2>&1; then
+            [ "$i" -gt 1 ] && echo ""
             info "found ${secret} after $(( (i - 1) * 10 ))s"
             return 0
+        fi
+        # Progress output matters here: on a cold bootstrap the chart behind this
+        # secret is still pulling images, and a silent 20-minute wait is
+        # indistinguishable from a wedged script.
+        if [ $(( i % 6 )) -eq 0 ]; then
+            printf ' [%dm]' "$(( i / 6 ))"
+        else
+            printf '.'
         fi
         sleep 10
         i=$((i + 1))
     done
+    echo ""
 
     fail "timed out after 20m waiting for secret ${secret} in namespace ${ns} on ${ctx}.
        The secret is minted by the OpenChoreo Helm chart that Argo CD installs.
