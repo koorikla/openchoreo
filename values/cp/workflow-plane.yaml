@@ -1,0 +1,14 @@
+# Workflow plane on the cp cluster. Its agent is in the same cluster as the
+# control plane, so it uses the in-cluster cluster-gateway service address.
+
+clusterAgent:
+  serverUrl: "wss://cluster-gateway.openchoreo-control-plane.svc.cluster.local:8443/ws"
+  planeID: default
+
+argo-workflows:
+  server:
+    enabled: true
+    serviceType: LoadBalancer
+    servicePort: 10081
+    authModes:
+      - server
