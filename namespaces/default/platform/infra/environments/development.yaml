@@ -11,5 +11,5 @@ metadata:
 spec:
   dataPlaneRef:
     kind: ClusterDataPlane
-    name: default
+    name: dp-nonprod
   isProduction: false
