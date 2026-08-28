@@ -952,8 +952,18 @@ thunder:
           log_info "FinOps Agent application created successfully"
         fi
 
-  # k3s's default local-path StorageClass uses WaitForFirstConsumer, which
-  # deadlocks this chart's pre-install PVC hook under Argo CD. See
-  # argocd/manifests/storage/local-path-immediate.yaml.
+  # Thunder hardcodes "helm.sh/hook": pre-install on its SQLite PVC. Argo CD
+  # maps that to a PreSync hook and waits for the PVC to Bound before creating
+  # any workload - but k3s's local-path provisioner requires
+  # WaitForFirstConsumer (it needs a scheduled pod to pick the node), so the
+  # PVC cannot bind until a pod exists. Deadlock.
+  #
+  # An Immediate-binding StorageClass does NOT fix this: local-path rejects it
+  # with "configuration error, no node was specified".
+  #
+  # argocd.argoproj.io/hook takes precedence over helm.sh/hook, so declaring it
+  # a Sync hook moves the PVC into the same phase as the Deployment. Both are
+  # applied together, the pod schedules, and the PVC binds.
   persistence:
-    storageClass: local-path-immediate
+    annotations:
+      argocd.argoproj.io/hook: Sync
