@@ -1,0 +1,53 @@
+# Discovers one Application per namespaces/<namespace>/projects/<project>
+# directory. The destination namespace is derived from the path (segment 1)
+# rather than hardcoded, and each project gets its own Application with
+# independent sync state and health - onboarding a project is just adding the
+# directory.
+#
+# Generous retry: wave-30 Components cannot reconcile until the data-plane
+# agents connect, which depends on the imperative CA step in
+# bootstrap/link-planes.sh run after the initial sync.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: projects
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/koorikla/openchoreo.git
+        revision: feat/multicluster-argocd
+        directories:
+          - path: namespaces/*/projects/*
+  template:
+    metadata:
+      name: '{{index .path.segments 1}}-{{.path.basename}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: "30"
+    spec:
+      project: openchoreo
+      source:
+        repoURL: https://github.com/koorikla/openchoreo.git
+        targetRevision: feat/multicluster-argocd
+        path: '{{.path.path}}'
+        directory:
+          recurse: true
+      destination:
+        name: in-cluster
+        namespace: '{{index .path.segments 1}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 20
+          backoff:
+            duration: 15s
+            factor: 2
+            maxDuration: 5m

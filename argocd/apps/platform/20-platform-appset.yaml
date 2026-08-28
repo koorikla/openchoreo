@@ -1,0 +1,48 @@
+# Discovers one Application per namespaces/<namespace>/platform directory.
+# The destination namespace is derived from the path (segment 1) rather than
+# hardcoded, so onboarding a namespace is just adding the directory - no edit
+# to this file is required.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: platform
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "20"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/koorikla/openchoreo.git
+        revision: feat/multicluster-argocd
+        directories:
+          - path: namespaces/*/platform
+  template:
+    metadata:
+      name: '{{index .path.segments 1}}-platform'
+      annotations:
+        argocd.argoproj.io/sync-wave: "20"
+    spec:
+      project: openchoreo
+      source:
+        repoURL: https://github.com/koorikla/openchoreo.git
+        targetRevision: feat/multicluster-argocd
+        path: '{{.path.path}}'
+        directory:
+          recurse: true
+      destination:
+        name: in-cluster
+        namespace: '{{index .path.segments 1}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 20
+          backoff:
+            duration: 15s
+            factor: 2
+            maxDuration: 5m

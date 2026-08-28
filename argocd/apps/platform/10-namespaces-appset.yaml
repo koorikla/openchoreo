@@ -1,0 +1,48 @@
+# Discovers one Application per namespace directory under namespaces/.
+# Recursion is off and the include filter pins it to namespace.yaml, so this
+# creates ONLY the Namespace - platform/ and projects/ are owned by the
+# wave-20 and wave-30 ApplicationSets.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: namespaces
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "10"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/koorikla/openchoreo.git
+        revision: feat/multicluster-argocd
+        directories:
+          - path: namespaces/*
+  template:
+    metadata:
+      name: '{{.path.basename}}-namespace'
+      annotations:
+        argocd.argoproj.io/sync-wave: "10"
+    spec:
+      project: openchoreo
+      source:
+        repoURL: https://github.com/koorikla/openchoreo.git
+        targetRevision: feat/multicluster-argocd
+        path: '{{.path.path}}'
+        directory:
+          include: namespace.yaml
+      destination:
+        name: in-cluster
+        namespace: '{{.path.basename}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+        retry:
+          limit: 20
+          backoff:
+            duration: 15s
+            factor: 2
+            maxDuration: 5m
