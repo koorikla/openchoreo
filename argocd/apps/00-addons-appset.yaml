@@ -1,0 +1,161 @@
+# Cluster addons (cert-manager, ESO, kgateway, OpenBao, Thunder, registry,
+# OpenSearch operator) for both clusters, generated from one list.
+#
+# ORDERING CAVEAT: an ApplicationSet has no Argo CD health check of its own —
+# it is Healthy the moment the CR exists. The sync-wave annotation below
+# therefore orders only the creation of this ApplicationSet relative to the
+# other manifests under argocd/apps/; it does NOT make wave -10 (the planes)
+# wait for the Applications generated here to become Healthy. Addon-before-plane
+# ordering is consequently retry-driven: the plane Applications retry until the
+# CRDs and webhooks these addons install are present. If first-sync flakes show
+# up in practice, the upgrade path is to set `spec.strategy.type: RollingSync`
+# here (and on the planes set) with steps keyed off the per-Application
+# sync-wave labels, which does gate on generated-Application health.
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: addons
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "-20"
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - list:
+        elements:
+          # --- cert-manager -------------------------------------------------
+          - name: cp-cert-manager
+            cluster: in-cluster
+            repoURL: quay.io/jetstack/charts
+            chart: cert-manager
+            version: v1.21.1
+            namespace: cert-manager
+            valuesFile: values/common/cert-manager.yaml
+          - name: dp-prod-cert-manager
+            cluster: dp-prod
+            repoURL: quay.io/jetstack/charts
+            chart: cert-manager
+            version: v1.21.1
+            namespace: cert-manager
+            valuesFile: values/common/cert-manager.yaml
+          # --- external-secrets ---------------------------------------------
+          - name: cp-external-secrets
+            cluster: in-cluster
+            repoURL: ghcr.io/external-secrets/charts
+            chart: external-secrets
+            version: 2.9.0
+            namespace: external-secrets
+            valuesFile: values/common/external-secrets.yaml
+          - name: dp-prod-external-secrets
+            cluster: dp-prod
+            repoURL: ghcr.io/external-secrets/charts
+            chart: external-secrets
+            version: 2.9.0
+            namespace: external-secrets
+            valuesFile: values/common/external-secrets.yaml
+          # --- kgateway CRDs -------------------------------------------------
+          - name: cp-kgateway-crds
+            cluster: in-cluster
+            repoURL: cr.kgateway.dev/kgateway-dev/charts
+            chart: kgateway-crds
+            version: 2.4.3
+            namespace: openchoreo-control-plane
+            valuesFile: values/common/kgateway.yaml
+          - name: dp-prod-kgateway-crds
+            cluster: dp-prod
+            repoURL: cr.kgateway.dev/kgateway-dev/charts
+            chart: kgateway-crds
+            version: 2.4.3
+            namespace: openchoreo-data-plane
+            valuesFile: values/common/kgateway.yaml
+          # --- kgateway ------------------------------------------------------
+          - name: cp-kgateway
+            cluster: in-cluster
+            repoURL: cr.kgateway.dev/kgateway-dev/charts
+            chart: kgateway
+            version: 2.4.3
+            namespace: openchoreo-control-plane
+            valuesFile: values/common/kgateway.yaml
+          - name: dp-prod-kgateway
+            cluster: dp-prod
+            repoURL: cr.kgateway.dev/kgateway-dev/charts
+            chart: kgateway
+            version: 2.4.3
+            namespace: openchoreo-data-plane
+            valuesFile: values/common/kgateway.yaml
+          # --- OpenBao -------------------------------------------------------
+          - name: cp-openbao
+            cluster: in-cluster
+            repoURL: ghcr.io/openbao/charts
+            chart: openbao
+            version: 0.29.3
+            namespace: openbao
+            valuesFile: values/common/openbao.yaml
+          - name: dp-prod-openbao
+            cluster: dp-prod
+            repoURL: ghcr.io/openbao/charts
+            chart: openbao
+            version: 0.29.3
+            namespace: openbao
+            valuesFile: values/common/openbao.yaml
+          # --- control-plane-only addons -------------------------------------
+          - name: cp-thunder
+            cluster: in-cluster
+            repoURL: ghcr.io/asgardeo/helm-charts
+            chart: thunder
+            version: 0.36.0
+            namespace: thunder
+            valuesFile: values/cp/thunder.yaml
+          # These two use classic HTTPS chart repos rather than OCI registries;
+          # Argo CD tells the forms apart by the presence of the URL scheme.
+          - name: cp-registry
+            cluster: in-cluster
+            repoURL: https://twuni.github.io/docker-registry.helm
+            chart: docker-registry
+            version: 3.0.0
+            namespace: openchoreo-workflow-plane
+            valuesFile: values/cp/registry.yaml
+          - name: cp-opensearch-operator
+            cluster: in-cluster
+            repoURL: https://opensearch-project.github.io/opensearch-k8s-operator/
+            chart: opensearch-operator
+            version: 3.0.2
+            namespace: openchoreo-observability-plane
+            valuesFile: values/common/opensearch-operator.yaml
+  template:
+    metadata:
+      name: '{{.name}}'
+      annotations:
+        argocd.argoproj.io/sync-wave: "-20"
+    spec:
+      project: openchoreo
+      sources:
+        # `ref: values` resolves against the REPO ROOT, and every valuesFile
+        # already starts with `values/`, so the rendered path is
+        # `$values/values/common/openbao.yaml`. The doubled segment is correct.
+        - repoURL: https://github.com/koorikla/openchoreo.git
+          targetRevision: feat/multicluster-argocd
+          ref: values
+        - repoURL: '{{.repoURL}}'
+          chart: '{{.chart}}'
+          targetRevision: '{{.version}}'
+          helm:
+            valueFiles:
+              - $values/{{.valuesFile}}
+      destination:
+        name: '{{.cluster}}'
+        namespace: '{{.namespace}}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+        retry:
+          limit: 10
+          backoff:
+            duration: 10s
+            factor: 2
+            maxDuration: 3m
