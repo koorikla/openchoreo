@@ -47,14 +47,14 @@ forward() {
     echo "$pid" >> "$PID_FILE"
 }
 
-# 1. Control Plane Gateway (HTTP: 8080, HTTPS: 8443)
+# 1. Control Plane Gateway (HTTP: 8080)
 # We find the service dynamically matching Gateway API naming conventions
 CP_SVC=$($KUBECTL get svc -n openchoreo-control-plane -l gateway.networking.k8s.io/gateway-name=gateway-default -o jsonpath='{.items[0].metadata.name}')
-forward "openchoreo-control-plane" "$CP_SVC" "8080:8080 8443:8443" "control-plane"
+forward "openchoreo-control-plane" "$CP_SVC" "8080:8080" "control-plane"
 
-# 2. Data Plane Gateway (HTTP: 19080, HTTPS: 19443)
+# 2. Data Plane Gateway (HTTP: 19080)
 DP_SVC=$($KUBECTL get svc -n openchoreo-data-plane -l gateway.networking.k8s.io/gateway-name=gateway-default -o jsonpath='{.items[0].metadata.name}')
-forward "openchoreo-data-plane" "$DP_SVC" "19080:19080 19443:19443" "data-plane"
+forward "openchoreo-data-plane" "$DP_SVC" "19080:19080" "data-plane"
 
 # 3. Workflow Plane Registry (10082) and Argo Workflows (10081)
 forward "openchoreo-workflow-plane" "registry" "10082:10082" "registry"
@@ -62,7 +62,7 @@ forward "openchoreo-workflow-plane" "argo-workflows-server" "10081:10081" "argo"
 
 # 4. Observability Plane Gateway (11080)
 OP_SVC=$($KUBECTL get svc -n openchoreo-observability-plane -l gateway.networking.k8s.io/gateway-name=gateway-default -o jsonpath='{.items[0].metadata.name}')
-forward "openchoreo-observability-plane" "$OP_SVC" "11080:11080 11085:11085" "observability"
+forward "openchoreo-observability-plane" "$OP_SVC" "11080:11080" "observability"
 
 # 5. OpenSearch Dashboards (5601 mapped to host 11081)
 forward "openchoreo-observability-plane" "opensearch-dashboards" "11081:5601" "opensearch-dashboards"
