@@ -1,0 +1,109 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "openchoreo-control-plane.name" . }}-mutating-webhook-configuration
+  labels:
+    {{- include "openchoreo-control-plane.componentLabels" (dict "context" . "component" .Values.controllerManager.name) | nindent 4 }}
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ .Values.controllerManager.name }}-webhook-server-cert
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ .Values.controllerManager.name }}-webhook-service
+      namespace: '{{ .Release.Namespace }}'
+      path: /mutate-openchoreo-dev-v1alpha1-component
+  failurePolicy: Fail
+  name: mcomponent-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - openchoreo.dev
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - components
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ .Values.controllerManager.name }}-webhook-service
+      namespace: '{{ .Release.Namespace }}'
+      path: /mutate-openchoreo-dev-v1alpha1-componentrelease
+  failurePolicy: Fail
+  name: mcomponentrelease-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - openchoreo.dev
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - componentreleases
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ .Values.controllerManager.name }}-webhook-service
+      namespace: '{{ .Release.Namespace }}'
+      path: /mutate-openchoreo-dev-v1alpha1-releasebinding
+  failurePolicy: Fail
+  name: mreleasebinding-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - openchoreo.dev
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - releasebindings
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ .Values.controllerManager.name }}-webhook-service
+      namespace: '{{ .Release.Namespace }}'
+      path: /mutate-openchoreo-dev-v1alpha1-workflow
+  failurePolicy: Fail
+  name: mworkflow-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - openchoreo.dev
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - workflows
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: {{ .Values.controllerManager.name }}-webhook-service
+      namespace: '{{ .Release.Namespace }}'
+      path: /mutate-openchoreo-dev-v1alpha1-clusterworkflow
+  failurePolicy: Fail
+  name: mclusterworkflow-v1alpha1.kb.io
+  rules:
+  - apiGroups:
+    - openchoreo.dev
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - clusterworkflows
+  sideEffects: None

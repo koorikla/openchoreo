@@ -193,11 +193,7 @@ EOF
         --for=condition=Ready externalsecret/backstage-secrets --timeout=120s
 
     step "Installing the control plane"
-    # Pre-apply the patched ClusterAuthzRoleBinding CRD to resolve CEL namespace keyword issue on newer Kubernetes (v1.31+)
-    $KUBECTL apply -f bootstrap/config/crds/openchoreo.dev_clusterauthzrolebindings.yaml
-
-    $HELM upgrade --install openchoreo-control-plane "$HELM_REPO/openchoreo-control-plane" \
-        --version "$OPENCHOREO_CHART_VERSION" \
+    $HELM upgrade --install openchoreo-control-plane bootstrap/config/charts/openchoreo-control-plane \
         --namespace "$CONTROL_PLANE_NS" --create-namespace \
         --values bootstrap/config/values-cp.yaml
     $KUBECTL wait -n "$CONTROL_PLANE_NS" \

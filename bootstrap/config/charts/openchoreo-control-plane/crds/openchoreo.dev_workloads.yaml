@@ -1,0 +1,370 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.16.4
+  name: workloads.openchoreo.dev
+spec:
+  group: openchoreo.dev
+  names:
+    kind: Workload
+    listKind: WorkloadList
+    plural: workloads
+    singular: workload
+  scope: Namespaced
+  versions:
+  - additionalPrinterColumns:
+    - jsonPath: .spec.owner.projectName
+      name: Project
+      type: string
+    - jsonPath: .spec.owner.componentName
+      name: Component
+      type: string
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: Workload is the Schema for the workloads API.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            properties:
+              container:
+                description: Container defines the container specification for this
+                  workload.
+                properties:
+                  args:
+                    items:
+                      type: string
+                    type: array
+                  command:
+                    description: Container entrypoint & args.
+                    items:
+                      type: string
+                    type: array
+                  env:
+                    description: Explicit environment variables.
+                    items:
+                      description: EnvVar represents an environment variable present
+                        in the container.
+                      properties:
+                        key:
+                          description: The environment variable key.
+                          type: string
+                        value:
+                          description: |-
+                            The literal value of the environment variable.
+                            Mutually exclusive with valueFrom.
+                          type: string
+                        valueFrom:
+                          description: |-
+                            Extract the environment variable value from another resource.
+                            Mutually exclusive with value.
+                          properties:
+                            secretKeyRef:
+                              description: Reference to a secret resource.
+                              properties:
+                                key:
+                                  minLength: 1
+                                  type: string
+                                name:
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                          type: object
+                      required:
+                      - key
+                      type: object
+                      x-kubernetes-validations:
+                      - message: value and valueFrom are mutually exclusive
+                        rule: '!(has(self.value) && has(self.valueFrom))'
+                    type: array
+                  files:
+                    description: File configurations.
+                    items:
+                      description: FileVar represents a file configuration in a container.
+                      properties:
+                        key:
+                          description: The file key/name.
+                          type: string
+                        mountPath:
+                          description: The mount path where the file will be mounted.
+                          type: string
+                        value:
+                          description: |-
+                            The literal content of the file.
+                            Mutually exclusive with valueFrom.
+                          type: string
+                        valueFrom:
+                          description: |-
+                            Extract the environment variable value from another resource.
+                            Mutually exclusive with value.
+                          properties:
+                            secretKeyRef:
+                              description: Reference to a secret resource.
+                              properties:
+                                key:
+                                  minLength: 1
+                                  type: string
+                                name:
+                                  minLength: 1
+                                  type: string
+                              required:
+                              - key
+                              - name
+                              type: object
+                          type: object
+                      required:
+                      - key
+                      - mountPath
+                      type: object
+                      x-kubernetes-validations:
+                      - message: value and valueFrom are mutually exclusive
+                        rule: '!(has(self.value) && has(self.valueFrom))'
+                    type: array
+                  image:
+                    description: OCI image to run (digest or tag).
+                    minLength: 1
+                    type: string
+                required:
+                - image
+                type: object
+              dependencies:
+                description: Dependencies define the dependencies of this workload
+                  on other components.
+                properties:
+                  endpoints:
+                    description: Endpoints define how this workload consumes endpoints
+                      from other components.
+                    items:
+                      description: WorkloadConnection represents a connection to another
+                        component's endpoint.
+                      properties:
+                        component:
+                          description: Component is the target component name.
+                          minLength: 1
+                          type: string
+                        envBindings:
+                          description: EnvBindings maps semantic URL components to
+                            environment variable names.
+                          properties:
+                            address:
+                              description: |-
+                                Address is the env var name for the protocol-appropriate connection string.
+                                For HTTP/HTTPS/WS/WSS: scheme://host:port/basePath
+                                For gRPC/TCP/UDP: host:port
+                              type: string
+                            basePath:
+                              description: BasePath is the optional env var name for
+                                just the base path.
+                              type: string
+                            host:
+                              description: Host is the optional env var name for just
+                                the hostname.
+                              type: string
+                            port:
+                              description: Port is the optional env var name for just
+                                the port number.
+                              type: string
+                          type: object
+                        name:
+                          description: Name is the target endpoint name on the target
+                            component.
+                          minLength: 1
+                          type: string
+                        project:
+                          description: |-
+                            Project is the target component's project name.
+                            If empty, defaults to the same project as the consumer.
+                            Required when namespace is specified.
+                          type: string
+                        visibility:
+                          allOf:
+                          - enum:
+                            - project
+                            - namespace
+                            - internal
+                            - external
+                          - enum:
+                            - project
+                            - namespace
+                          description: Visibility is the visibility level at which
+                            this connection consumes the endpoint.
+                          type: string
+                      required:
+                      - component
+                      - envBindings
+                      - name
+                      - visibility
+                      type: object
+                    maxItems: 50
+                    type: array
+                  resources:
+                    description: |-
+                      Resources define how this workload consumes outputs from project-bound Resources.
+                      Each entry references a Resource by name and binds named outputs of the resolved
+                      ResourceReleaseBinding to container env vars (envBindings) and file mounts (fileBindings).
+                    items:
+                      description: |-
+                        WorkloadResourceDependency represents a dependency on a project-bound Resource. Output names
+                        declared on the referenced ResourceType are wired into the consuming container as env vars
+                        (envBindings) and file mounts (fileBindings). Outputs not listed in either map are ignored.
+                      properties:
+                        envBindings:
+                          additionalProperties:
+                            type: string
+                          description: |-
+                            EnvBindings maps a ResourceType output name to a container environment variable name.
+                            The output's source kind (value, secretKeyRef, configMapKeyRef) determines whether the
+                            resulting env var is a literal or a valueFrom reference.
+                          maxProperties: 50
+                          type: object
+                          x-kubernetes-validations:
+                          - message: envBindings keys (output names) and values (env
+                              var names) cannot be empty
+                            rule: self.all(k, k.size() > 0 && self[k].size() > 0)
+                        fileBindings:
+                          additionalProperties:
+                            type: string
+                          description: |-
+                            FileBindings maps a ResourceType output name to a container mount path. The referenced
+                            output's source kind must be secretKeyRef or configMapKeyRef; value-kind outputs cannot
+                            be mounted as files because there is no DP-side object to mount.
+                          maxProperties: 50
+                          type: object
+                          x-kubernetes-validations:
+                          - message: fileBindings keys (output names) and values (mount
+                              paths) cannot be empty
+                            rule: self.all(k, k.size() > 0 && self[k].size() > 0)
+                        ref:
+                          description: |-
+                            Ref is the name of the Resource to consume. The Resource must live in the same project as
+                            the consuming Component (cross-project consumption is deferred to a later release).
+                          minLength: 1
+                          type: string
+                      required:
+                      - ref
+                      type: object
+                    maxItems: 50
+                    type: array
+                    x-kubernetes-list-map-keys:
+                    - ref
+                    x-kubernetes-list-type: map
+                type: object
+              endpoints:
+                additionalProperties:
+                  description: WorkloadEndpoint represents a simple network endpoint
+                    for basic exposure.
+                  properties:
+                    basePath:
+                      description: BasePath is the base path of the API exposed via
+                        the endpoint.
+                      type: string
+                    displayName:
+                      description: DisplayName is an optional human-readable name
+                        for the endpoint.
+                      type: string
+                    port:
+                      description: Port exposed by the endpoint. If targetPort is
+                        not set, platform defaults to port for both.
+                      format: int32
+                      maximum: 65535
+                      minimum: 1
+                      type: integer
+                    schema:
+                      description: Schema for the endpoint API definition.
+                      properties:
+                        content:
+                          type: string
+                        type:
+                          type: string
+                      type: object
+                    targetPort:
+                      description: TargetPort maps to the container listening port.
+                        Optional — defaults to port.
+                      format: int32
+                      maximum: 65535
+                      minimum: 1
+                      type: integer
+                    type:
+                      description: Type indicates the protocol/technology of the endpoint.
+                      enum:
+                      - HTTP
+                      - gRPC
+                      - GraphQL
+                      - Websocket
+                      - TCP
+                      - UDP
+                      type: string
+                    visibility:
+                      description: |-
+                        Visibility is an array of additional endpoint visibilities beyond the implicit project visibility.
+                        Every endpoint always gets project visibility. This array adds extra scopes.
+                      items:
+                        description: |-
+                          EndpointVisibility defines the visibility scope for an endpoint.
+                          It determines which components can access the endpoint and how that access is enforced at runtime.
+                        enum:
+                        - project
+                        - namespace
+                        - internal
+                        - external
+                        type: string
+                      type: array
+                      x-kubernetes-list-type: set
+                  required:
+                  - port
+                  - type
+                  type: object
+                description: |-
+                  Endpoints define simple network endpoints for basic port exposure.
+                  The key is the endpoint name, and the value is the endpoint specification.
+                type: object
+              owner:
+                properties:
+                  componentName:
+                    minLength: 1
+                    type: string
+                  projectName:
+                    minLength: 1
+                    type: string
+                required:
+                - componentName
+                - projectName
+                type: object
+                x-kubernetes-validations:
+                - message: spec.owner is immutable
+                  rule: self == oldSelf
+            required:
+            - container
+            - owner
+            type: object
+          status:
+            description: WorkloadStatus defines the observed state of Workload.
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

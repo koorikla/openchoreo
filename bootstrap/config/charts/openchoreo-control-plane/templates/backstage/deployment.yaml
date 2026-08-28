@@ -1,0 +1,271 @@
+{{- if .Values.backstage.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openchoreo-control-plane.backstage.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openchoreo-control-plane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backstage
+spec:
+  replicas: {{ .Values.backstage.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: backstage
+      {{- include "openchoreo-control-plane.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: backstage
+        {{- include "openchoreo-control-plane.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ include "openchoreo-control-plane.backstage.serviceAccountName" . }}
+      {{- if .Values.backstage.priorityClass.create }}
+      priorityClassName: {{ .Values.backstage.priorityClass.name }}
+      {{- end }}
+      {{- with .Values.backstage.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backstage.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backstage.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backstage.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.backstage.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: backstage
+        image: "{{ .Values.backstage.image.repository }}:{{ .Values.backstage.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.backstage.image.pullPolicy }}
+        args:
+        - "node"
+        - "packages/backend"
+        - "--config"
+        - "app-config.yaml"
+        - "--config"
+        - "app-config.ci.yaml"
+        {{- if not .Values.backstage.tls.enabled }}
+        - "--config"
+        - "app-config.csp.yaml"
+        {{- end }}
+        {{- if .Values.backstage.appConfig }}
+        - "--config"
+        - "app-config.extra.yaml"
+        {{- end }}
+        {{- range .Values.backstage.extraArgs }}
+        - {{ . | quote }}
+        {{- end }}
+        ports:
+        - containerPort: 7007
+          name: http
+          protocol: TCP
+        env:
+        {{- with (concat (.Values.backstage.env | default list) (.Values.backstage.extraEnv | default list)) }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        - name: OPENCHOREO_API_URL
+          value: {{ .Values.backstage.openchoreoApi.url | default (printf "http://%s.%s.svc.cluster.local:8080/api/v1" (include "openchoreo-control-plane.openchoreoApi.name" .) .Release.Namespace) }}
+        - name: BACKSTAGE_BASE_URL
+          value: {{ .Values.backstage.baseUrl | trimSuffix "/" | quote }}
+        - name: BACKEND_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.backstage.secretName }}
+              key: backend-secret
+        # Common security and OAuth configuration
+        # OIDC Discovery URL (optional) - enables auto-discovery of OAuth endpoints
+        {{- if .Values.security.oidc.wellKnownEndpoint }}
+        - name: OPENCHOREO_AUTH_METADATA_URL
+          value: {{ .Values.security.oidc.wellKnownEndpoint | quote }}
+        {{- end }}
+        # Explicit OAuth2 endpoints
+        - name: OPENCHOREO_AUTH_AUTHORIZATION_URL
+          value: {{ .Values.security.oidc.authorizationUrl | quote }}
+        - name: OPENCHOREO_AUTH_TOKEN_URL
+          value: {{ .Values.security.oidc.tokenUrl | quote }}
+        - name: OPENCHOREO_AUTH_CLIENT_ID
+          value: {{ .Values.backstage.auth.clientId | quote }}
+        - name: OPENCHOREO_AUTH_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.backstage.secretName }}
+              key: client-secret
+        - name: OPENCHOREO_AUTH_OIDC_SCOPE
+          value: {{ .Values.backstage.auth.oidcScope | quote }}
+        {{- if .Values.backstage.auth.scope }}
+        - name: OPENCHOREO_AUTH_SCOPE
+          value: {{ .Values.backstage.auth.scope | quote }}
+        {{- end }}
+        # Service client credentials for background tasks (Catalog Provider)
+        # Independent from the user-facing sign-in client above.
+        # Defaults to the sign-in client values for backward compatibility.
+        - name: OPENCHOREO_SERVICE_CLIENT_ID
+          value: {{ .Values.backstage.auth.serviceClientId | default .Values.backstage.auth.clientId | quote }}
+        - name: OPENCHOREO_SERVICE_CLIENT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.backstage.secretName }}
+              key: {{ .Values.backstage.auth.serviceClientSecretKey | default "client-secret" }}
+        # Feature flags for OpenChoreo functionality
+        - name: OPENCHOREO_FEATURES_WORKFLOWS_ENABLED
+          value: {{ .Values.backstage.features.workflows.enabled | quote }}
+        - name: OPENCHOREO_FEATURES_OBSERVABILITY_ENABLED
+          value: {{ .Values.backstage.features.observability.enabled | quote }}
+        - name: OPENCHOREO_FEATURES_AUTH_ENABLED
+          value: {{ .Values.security.enabled | quote }}
+        - name: OPENCHOREO_FEATURES_AUTHZ_ENABLED
+          value: {{ .Values.security.authz.enabled | quote }}
+        - name: OPENCHOREO_FEATURES_AUTH_REDIRECT_FLOW_ENABLED
+          value: {{ .Values.backstage.features.auth.redirectFlow.enabled | quote }}
+        - name: OPENCHOREO_FEATURES_ASSISTANT_ENABLED
+          value: {{ .Values.backstage.features.assistant.enabled | quote }}
+        # Upstream URL the Backstage forwarder plugin posts /chat and /warmup to.
+        # Only meaningful when the assistant flag above is true — the
+        # plugin still loads when the URL is unset, but every chat
+        # call will 502. When portalAssistantUrl is empty, fall back to the
+        # in-cluster portal-assistant Service in the release namespace.
+        - name: OPENCHOREO_PORTAL_ASSISTANT_URL
+          value: {{ .Values.backstage.features.assistant.portalAssistantUrl | default (printf "http://%s.%s.svc.cluster.local:%v" (include "openchoreo-control-plane.portalAssistant.name" .) .Release.Namespace .Values.portalAssistant.service.port) | quote }}
+        - name: OPENCHOREO_FEATURES_SECRET_MANAGEMENT_ENABLED
+          value: {{ .Values.features.secretManagement.enabled | quote }}
+        # Catalog sync — periodic full sync acts as a safety net behind
+        # the event-forwarder's real-time event-driven path. When the
+        # event-forwarder is disabled, this becomes the sole sync
+        # mechanism.
+        - name: OPENCHOREO_CATALOG_SYNC_FREQUENCY
+          value: {{ .Values.backstage.catalogSync.frequency | default 300 | quote }}
+        # Whether to wire the OpenChoreo events flow on the Backstage
+        # side. Mirrors `eventForwarder.enabled`: with the forwarder
+        # off, the event router and entity-provider subscriptions are
+        # skipped so the system runs in poll-only mode.
+        - name: OPENCHOREO_EVENTS_ENABLED
+          value: {{ .Values.eventForwarder.enabled | quote }}
+        # External CI Platform Integrations
+        # Jenkins: requires jenkins.io/job-full-name annotation on entity
+        - name: JENKINS_BASE_URL
+          value: {{ .Values.backstage.externalCI.jenkins.baseUrl | quote }}
+        - name: JENKINS_USERNAME
+          value: {{ .Values.backstage.externalCI.jenkins.username | quote }}
+        - name: JENKINS_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.backstage.secretName }}
+              key: jenkins-api-key
+        # Database configuration
+        {{- if eq .Values.backstage.database.type "sqlite" }}
+        - name: DATABASE_CLIENT
+          value: "better-sqlite3"
+        - name: SQLITE_STORAGE_DIR
+          value: {{ .Values.backstage.database.sqlite.mountPath | quote }}
+        {{- else if eq .Values.backstage.database.type "postgresql" }}
+        - name: DATABASE_CLIENT
+          value: "pg"
+        - name: POSTGRES_HOST
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.backstage.secretName }}
+              key: postgres-host
+        - name: POSTGRES_PORT
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.backstage.secretName }}
+              key: postgres-port
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.backstage.secretName }}
+              key: postgres-user
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.backstage.secretName }}
+              key: postgres-password
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.backstage.secretName }}
+              key: postgres-db
+        {{- if .Values.backstage.database.postgresql.ssl }}
+        - name: PGSSLMODE
+          value: "require"
+        {{- end }}
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /healthcheck
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /healthcheck
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+        resources:
+          {{- toYaml .Values.backstage.resources | nindent 12 }}
+        {{- with .Values.backstage.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        {{- if eq .Values.backstage.database.type "sqlite" }}
+        - name: backstage-db
+          mountPath: {{ .Values.backstage.database.sqlite.mountPath }}
+        {{- end }}
+        - name: ci-config
+          mountPath: /app/app-config.ci.yaml
+          subPath: app-config.ci.yaml
+          readOnly: true
+        {{- if not .Values.backstage.tls.enabled }}
+        - name: csp-config
+          mountPath: /app/app-config.csp.yaml
+          subPath: app-config.csp.yaml
+          readOnly: true
+        {{- end }}
+        {{- if .Values.backstage.appConfig }}
+        - name: extra-app-config
+          mountPath: /app/app-config.extra.yaml
+          subPath: app-config.extra.yaml
+          readOnly: true
+        {{- end }}
+        {{- with .Values.backstage.extraVolumeMounts }}
+        {{- toYaml . | nindent 12 }}
+        {{- end }}
+      volumes:
+      {{- if eq .Values.backstage.database.type "sqlite" }}
+      - name: backstage-db
+        {{- if .Values.backstage.database.sqlite.persistence.enabled }}
+        persistentVolumeClaim:
+          claimName: {{ include "openchoreo-control-plane.backstage.name" . }}-db
+        {{- else }}
+        emptyDir: {}
+        {{- end }}
+      {{- end }}
+      - name: ci-config
+        configMap:
+          name: {{ include "openchoreo-control-plane.backstage.name" . }}-ci-config
+      {{- if not .Values.backstage.tls.enabled }}
+      - name: csp-config
+        configMap:
+          name: {{ include "openchoreo-control-plane.backstage.name" . }}-csp-config
+      {{- end }}
+      {{- if .Values.backstage.appConfig }}
+      - name: extra-app-config
+        configMap:
+          name: {{ include "openchoreo-control-plane.backstage.name" . }}-extra-config
+      {{- end }}
+      {{- with .Values.backstage.extraVolumes }}
+      {{- toYaml . | nindent 10 }}
+      {{- end }}
+{{- end }}

@@ -1,0 +1,112 @@
+{{- if .Values.openchoreoApi.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "openchoreo-control-plane.openchoreoApi.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openchoreo-control-plane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api-server
+  annotations:
+    # Trigger rollout when config changes
+    checksum/config: {{ include (print $.Template.BasePath "/openchoreo-api/configmap.yaml") . | sha256sum }}
+spec:
+  replicas: {{ .Values.openchoreoApi.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: api-server
+      {{- include "openchoreo-control-plane.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: api-server
+        {{- include "openchoreo-control-plane.selectorLabels" . | nindent 8 }}
+      annotations:
+        # Trigger pod restart when config changes
+        checksum/config: {{ include (print $.Template.BasePath "/openchoreo-api/configmap.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: {{ include "openchoreo-control-plane.openchoreoApi.serviceAccountName" . }}
+      {{- if .Values.openchoreoApi.priorityClass.create }}
+      priorityClassName: {{ .Values.openchoreoApi.priorityClass.name }}
+      {{- end }}
+      {{- with .Values.openchoreoApi.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.openchoreoApi.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.openchoreoApi.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.openchoreoApi.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.openchoreoApi.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: api-server
+        image: "{{ .Values.openchoreoApi.image.repository }}:{{ .Values.openchoreoApi.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.openchoreoApi.image.pullPolicy }}
+        args:
+          - --config=/etc/openchoreo/config.yaml
+        ports:
+        - containerPort: {{ .Values.openchoreoApi.config.server.port | default 8080 }}
+          name: http
+          protocol: TCP
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/openchoreo/data
+        - name: config
+          mountPath: /etc/openchoreo
+          readOnly: true
+        {{- if .Values.clusterGateway.tls.enabled }}
+        - name: cluster-gateway-ca
+          mountPath: /etc/cluster-gateway
+          readOnly: true
+        {{- end }}
+        {{- if and .Values.clusterGateway.tls.enabled .Values.clusterGateway.internalMtls.enabled }}
+        - name: cluster-gateway-client-tls
+          mountPath: /etc/cluster-gateway-client
+          readOnly: true
+        {{- end }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources:
+          {{- toYaml .Values.openchoreoApi.resources | nindent 12 }}
+        {{- with .Values.openchoreoApi.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      volumes:
+      - name: data
+        emptyDir: {}
+      - name: config
+        configMap:
+          name: {{ include "openchoreo-control-plane.openchoreoApi.name" . }}-config
+      {{- if .Values.clusterGateway.tls.enabled }}
+      - name: cluster-gateway-ca
+        secret:
+          secretName: {{ .Values.openchoreoApi.clusterGateway.tls.caSecret }}
+      {{- end }}
+      {{- if and .Values.clusterGateway.tls.enabled .Values.clusterGateway.internalMtls.enabled }}
+      - name: cluster-gateway-client-tls
+        secret:
+          secretName: {{ .Values.openchoreoApi.clusterGateway.tls.clientSecret }}
+      {{- end }}
+{{- end }}

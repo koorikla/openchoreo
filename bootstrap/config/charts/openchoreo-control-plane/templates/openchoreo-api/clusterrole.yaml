@@ -1,0 +1,138 @@
+{{- if .Values.openchoreoApi.enabled }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "openchoreo-control-plane.openchoreoApi.name" . }}
+  labels:
+    {{- include "openchoreo-control-plane.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api-server
+rules:
+- apiGroups:
+  - openchoreo.dev
+  resources:
+  - clusterauthzrolebindings
+  - clusterauthzroles
+  - authzrolebindings
+  - authzroles
+  - apibindings
+  - apiclasses
+  - apis
+  - workflowplanes
+  - clusterworkflowplanes
+  - clustercomponenttypes
+  - clusterdataplanes
+  - clusterresourcetypes
+  - clustertraits
+  - clusterobservabilityplanes
+  - clustertraits
+  - clusterworkflows
+  - componentreleases
+  - components
+  - componenttypes
+  - dataplanes
+  - deployableartifacts
+  - deploymentpipelines
+  - deployments
+  - endpoints
+  - environments
+  - gitrepositorywebhooks
+  - observabilityalertsnotificationchannels
+  - observabilityplanes
+  - projects
+  - releasebindings
+  - renderedreleases
+  - resources
+  - resourcereleases
+  - resourcereleasebindings
+  - resourcetypes
+  - scheduledtaskbindings
+  - scheduledtaskclasses
+  - scheduledtasks
+  - servicebindings
+  - serviceclasses
+  - services
+  - traits
+  - webapplicationbindings
+  - webapplicationclasses
+  - webapplications
+  - workflows
+  - workflowruns
+  - workloads
+  - secretreferences
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - namespaces
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - openchoreo.dev
+  resources:
+  - apibindings/status
+  - apiclasses/status
+  - apis/status
+  - workflowplanes/status
+  - clusterworkflowplanes/status
+  - clustercomponenttypes/status
+  - clusterdataplanes/status
+  - clustertraits/status
+  - clusterobservabilityplanes/status
+  - clustertraits/status
+  - clusterworkflows/status
+  - componentreleases/status
+  - components/status
+  - componenttypes/status
+  - dataplanes/status
+  - deployableartifacts/status
+  - deploymentpipelines/status
+  - deployments/status
+  - endpoints/status
+  - environments/status
+  - gitrepositorywebhooks/status
+  - observabilityalertsnotificationchannels/status
+  - observabilityplanes/status
+  - projects/status
+  - releasebindings/status
+  - renderedreleases/status
+  - resources/status
+  - resourcereleases/status
+  - resourcereleasebindings/status
+  - resourcetypes/status
+  - scheduledtaskbindings/status
+  - scheduledtaskclasses/status
+  - scheduledtasks/status
+  - servicebindings/status
+  - serviceclasses/status
+  - services/status
+  - traits/status
+  - webapplicationbindings/status
+  - webapplicationclasses/status
+  - webapplications/status
+  - workloads/status
+  - secretreferences/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - ""
+  resources:
+  - secrets
+  verbs:
+  - get
+  - list
+{{- end }}

@@ -1,0 +1,24 @@
+{{- include "openchoreo-control-plane.validateHostnames" . -}}
+OpenChoreo Control Plane installed in namespace "{{ .Release.Namespace }}".
+
+{{- if .Values.backstage.http.enabled }}
+
+URLs:
+  Console: {{ .Values.backstage.baseUrl | trimSuffix "/" }}
+  API:     {{ .Values.openchoreoApi.config.server.publicUrl | trimSuffix "/" }}
+
+{{- else }}
+
+Port-forward to access the console:
+  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "openchoreo-control-plane.backstage.name" . }} 7007:7007
+{{- end }}
+
+Gateway:
+  HTTP:  {{ .Values.gateway.httpPort }}
+{{- if .Values.gateway.tls.enabled }}
+  HTTPS: {{ .Values.gateway.httpsPort }}
+{{- end }}
+
+Components:
+  Backstage:  {{ ternary "enabled" "disabled" .Values.backstage.enabled }}
+  Security:   {{ ternary "enabled" "disabled" .Values.security.enabled }}

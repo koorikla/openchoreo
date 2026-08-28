@@ -1,0 +1,134 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.controllerManager.name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "openchoreo-control-plane.componentLabels" (dict "context" . "component" .Values.controllerManager.name) | nindent 4 }}
+spec:
+  replicas: {{ .Values.controllerManager.replicas }}
+  selector:
+    matchLabels:
+      {{- include "openchoreo-control-plane.componentSelectorLabels" (dict "context" . "component" .Values.controllerManager.name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "openchoreo-control-plane.componentSelectorLabels" (dict "context" . "component" .Values.controllerManager.name) | nindent 8 }}
+      annotations:
+        kubectl.kubernetes.io/default-container: manager
+    spec:
+      serviceAccountName: {{ .Values.controllerManager.name }}
+      {{- if .Values.controllerManager.priorityClass.create }}
+      priorityClassName: {{ .Values.controllerManager.priorityClass.name }}
+      {{- end }}
+      {{- with .Values.controllerManager.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllerManager.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllerManager.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllerManager.topologySpreadConstraints }}
+      topologySpreadConstraints:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.controllerManager.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: 10
+      {{- /* No init container needed - Secret is created directly by cert-manager */}}
+      containers:
+      - name: manager
+        image: {{ .Values.controllerManager.image.repository }}:{{ .Values.controllerManager.image.tag | default .Chart.AppVersion }}
+        imagePullPolicy: {{ .Values.controllerManager.image.pullPolicy }}
+        command:
+        - /manager
+        args: {{- toYaml .Values.controllerManager.manager.args | nindent 8 }}
+        - --cluster-gateway-url={{ .Values.controllerManager.clusterGateway.url }}
+        {{- if .Values.clusterGateway.tls.enabled }}
+        - --cluster-gateway-ca-cert={{ .Values.controllerManager.clusterGateway.tls.caPath }}
+        {{- end }}
+        {{- if and .Values.clusterGateway.tls.enabled .Values.clusterGateway.internalMtls.enabled }}
+        - --cluster-gateway-client-cert={{ .Values.controllerManager.clusterGateway.tls.clientCertPath }}
+        - --cluster-gateway-client-key={{ .Values.controllerManager.clusterGateway.tls.clientKeyPath }}
+        {{- end }}
+        {{- if .Values.controllerManager.clusterGateway.tls.insecure }}
+        - --cluster-gateway-insecure
+        {{- end }}
+        env:
+        - name: ENABLE_WEBHOOKS
+          value: {{ quote .Values.controllerManager.manager.env.enableWebhooks }}
+        - name: KUBERNETES_CLUSTER_DOMAIN
+          value: {{ quote .Values.kubernetesClusterDomain }}
+        - name: CLUSTER_GATEWAY_URL
+          value: {{ quote .Values.controllerManager.clusterGateway.url }}
+        {{- if .Values.clusterGateway.tls.enabled }}
+        - name: CLUSTER_GATEWAY_CA_CERT
+          value: {{ quote .Values.controllerManager.clusterGateway.tls.caPath }}
+        {{- end }}
+        ports:
+        - containerPort: 8080
+          name: metrics
+          protocol: TCP
+        - containerPort: 8081
+          name: health
+          protocol: TCP
+        - containerPort: 9443
+          name: webhook-server
+          protocol: TCP
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: 15
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        resources: {{- toYaml .Values.controllerManager.resources | nindent 10 }}
+        {{- with .Values.controllerManager.containerSecurityContext }}
+        securityContext:
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        {{- if eq (toString .Values.controllerManager.manager.env.enableWebhooks) "true" }}
+        - mountPath: /tmp/k8s-webhook-server/serving-certs
+          name: cert
+          readOnly: true
+        {{- end }}
+        {{- if .Values.clusterGateway.tls.enabled }}
+        - mountPath: /etc/cluster-gateway
+          name: cluster-gateway-ca
+          readOnly: true
+        {{- end }}
+        {{- if and .Values.clusterGateway.tls.enabled .Values.clusterGateway.internalMtls.enabled }}
+        - mountPath: /etc/cluster-gateway-client
+          name: cluster-gateway-client-tls
+          readOnly: true
+        {{- end }}
+      volumes:
+      {{- if eq (toString .Values.controllerManager.manager.env.enableWebhooks) "true" }}
+      - name: cert
+        secret:
+          defaultMode: 420
+          secretName: {{ .Values.controllerManager.name }}-webhook-server-cert
+      {{- end }}
+      {{- if .Values.clusterGateway.tls.enabled }}
+      - name: cluster-gateway-ca
+        secret:
+          secretName: {{ .Values.controllerManager.clusterGateway.tls.caSecret }}
+      {{- end }}
+      {{- if and .Values.clusterGateway.tls.enabled .Values.clusterGateway.internalMtls.enabled }}
+      - name: cluster-gateway-client-tls
+        secret:
+          secretName: {{ .Values.controllerManager.clusterGateway.tls.clientSecret }}
+      {{- end }}
