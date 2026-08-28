@@ -64,6 +64,22 @@ create_clusters() {
     done
 }
 
+ensure_machine_id() {
+    # Fluent Bit's DaemonSet mounts /etc/machine-id as a hostPath with
+    # type: File, so the pod will not start if the node does not have one.
+    # k3s node images ship without it. Both clusters run Fluent Bit (the
+    # telemetry layer deploys logs-fluentbit to cp and dp-prod alike), so
+    # both nodes need this.
+    step "Ensuring /etc/machine-id exists on both nodes"
+    local node
+    for node in "k3d-${CP_CLUSTER}-server-0" "k3d-${DP_PROD_CLUSTER}-server-0"; do
+        docker exec "$node" sh -c \
+            "[ -s /etc/machine-id ] || cat /proc/sys/kernel/random/uuid | tr -d '-' > /etc/machine-id" \
+            || fail "could not write /etc/machine-id on ${node}"
+        info "machine-id present on ${node}"
+    done
+}
+
 patch_coredns() {
     # Rewrites *.openchoreo.localhost and *.openchoreoapis.localhost to
     # host.k3d.internal so pods resolve host-published ports, including
@@ -180,6 +196,7 @@ print_summary() {
 main() {
     require_tools
     create_clusters
+    ensure_machine_id
     patch_coredns
     install_gateway_api_crds
     install_argocd
