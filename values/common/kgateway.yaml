@@ -1,0 +1,3 @@
+# Shared by kgateway-crds and kgateway. Chart defaults are correct for the
+# local k3d demo; this file exists so every addon has one tunable place.
+{}

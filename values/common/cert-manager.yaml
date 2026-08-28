@@ -1,0 +1,3 @@
+# cert-manager installs its own CRDs; the planes request Certificates from it.
+crds:
+  enabled: true
