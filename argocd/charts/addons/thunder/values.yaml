@@ -974,3 +974,10 @@ thunder:
   persistence:
     annotations:
       argocd.argoproj.io/sync-wave: "-5"
+
+  # Keep the setup Job and its pod after failure so the logs survive for
+  # diagnosis; the chart otherwise deletes the pod once backoffLimit is hit,
+  # which makes a failing setup impossible to debug under Argo CD.
+  setup:
+    preserveJob: true
+    debug: true
