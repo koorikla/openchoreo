@@ -1,0 +1,3 @@
+# ESO 2.x installs CRDs by default; pinned explicitly so the behaviour is visible.
+external-secrets:
+  installCRDs: true

@@ -1,0 +1,4 @@
+# Chart defaults are correct for the local k3d demo; this file exists so every
+# addon has one tunable place.
+# Upstream chart defaults apply unchanged; no overrides are needed here.
+# Add keys under a top-level `kgateway:` block to override the subchart.

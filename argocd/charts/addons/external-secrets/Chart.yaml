@@ -1,0 +1,9 @@
+apiVersion: v2
+name: external-secrets
+description: Wrapper pinning the upstream external-secrets chart for OpenChoreo
+type: application
+version: 0.1.0
+dependencies:
+  - name: external-secrets
+    version: 2.9.0
+    repository: oci://ghcr.io/external-secrets/charts

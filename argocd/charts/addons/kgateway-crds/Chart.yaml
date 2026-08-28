@@ -1,0 +1,9 @@
+apiVersion: v2
+name: kgateway-crds
+description: Wrapper pinning the upstream kgateway-crds chart for OpenChoreo
+type: application
+version: 0.1.0
+dependencies:
+  - name: kgateway-crds
+    version: 2.4.3
+    repository: oci://cr.kgateway.dev/kgateway-dev/charts

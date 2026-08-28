@@ -1,0 +1,6 @@
+dependencies:
+- name: openbao
+  repository: oci://ghcr.io/openbao/charts
+  version: 0.29.3
+digest: sha256:8a7393883af4735e1e9464276edf63fcda1515f2c48957709fea8accdeefd0c8
+generated: "2026-08-28T05:31:25.502795+03:00"

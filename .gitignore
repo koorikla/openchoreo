@@ -23,3 +23,7 @@ bootstrap/config/coredns-*.json
 *.zip
 *.tar.gz
 *.rar
+
+# Vendored Helm subcharts fetched by `helm dependency update`; Argo CD rebuilds
+# them from each Chart.lock, so they are never committed.
+argocd/charts/**/charts/

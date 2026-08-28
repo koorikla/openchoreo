@@ -1,0 +1,4 @@
+# The OpenSearch cluster itself comes from the observability-plane chart;
+# the operator runs with chart defaults.
+# Upstream chart defaults apply unchanged; no overrides are needed here.
+# Add keys under a top-level `opensearch-operator:` block to override the subchart.
