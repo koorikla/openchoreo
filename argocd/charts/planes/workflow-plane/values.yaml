@@ -5,6 +5,26 @@ openchoreo-workflow-plane:
   clusterAgent:
     serverUrl: "wss://cluster-gateway.openchoreo-control-plane.svc.cluster.local:8443/ws"
     planeID: default
+    tls:
+      # Issue this agent's client certificate from the control plane's own
+      # cluster-gateway CA instead of from a CA this plane mints for itself.
+      # caSecretName is left at its chart default, cluster-gateway-ca.
+      #
+      # What it buys: the control plane trusts its own CA by definition, so
+      # nothing has to be handed back after install. Every plane CR can point
+      # clientCA.secretKeyRef at cluster-gateway-ca as static git YAML, and
+      # bootstrap/link-planes.sh collapses from a two-way exchange into a
+      # one-way push.
+      #
+      # What it costs: a cert-manager CA Issuer signs locally, so it needs the
+      # CA's PRIVATE KEY - the control plane's cluster-gateway-ca key must be
+      # present in this namespace. Any plane holding that key can mint a cert
+      # the control plane trusts, i.e. impersonate another plane (and, since
+      # the same CA signs the gateway's server cert, impersonate the gateway).
+      # Upstream defaults generateCerts to true precisely to keep per-plane CA
+      # isolation. This is a demo-appropriate simplification, not a general
+      # improvement.
+      generateCerts: false
 
   argo-workflows:
     server:
