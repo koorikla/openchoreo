@@ -1,0 +1,33 @@
+# Generous retry: wave-30 Components cannot reconcile until the data-plane
+# agents connect, which depends on the imperative CA step in
+# bootstrap/link-planes.sh run after the initial sync.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: projects
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "30"
+spec:
+  project: openchoreo
+  source:
+    repoURL: https://github.com/koorikla/openchoreo.git
+    targetRevision: feat/multicluster-argocd
+    path: namespaces/default/projects
+    directory:
+      recurse: true
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 20
+      backoff:
+        duration: 15s
+        factor: 2
+        maxDuration: 5m
